@@ -17,3 +17,8 @@ class Emitter:
     def writeFile(self):
         with open(self.fullPath, 'w') as outputFile:
             outputFile.write(self.header + self.code)
+    
+    # Will clear the file of all contents, in case of error
+    def clearOutput(self):
+        with open(self.fullPath, 'w') as outputFile:
+            outputFile.write("")    
