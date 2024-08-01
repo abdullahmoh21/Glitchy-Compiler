@@ -1,10 +1,10 @@
 import sys
 from .tokenClass import Token, TokenType
+from Error.error import report
 
 class Lexer:
-    def __init__(self, source, abortFunction): 
+    def __init__(self, source): 
         self.source = source + "\n"  # Appends a newline to simplify lexing the last token
-        self.abort = abortFunction
         
         self.lineNumber = 1     # Current line in the source code
         self.lastToken = None
@@ -111,7 +111,7 @@ class Lexer:
                 self.nextChar()
                 token = Token(TokenType.AND, prevChar + self.currentChar)  # Add an AND token type
             else:
-                self.abort("Expected &&, got &", lineNumber=self.lineNumber, line=self.source[self.lineStart:self.currentPos + 1])
+                report("Expected &&, got &", lineNumber=self.lineNumber, line=self.source[self.lineStart:self.currentPos + 1])
 
         elif self.currentChar == '|':
             # || or | (error)?
@@ -120,7 +120,7 @@ class Lexer:
                 self.nextChar()
                 token = Token(TokenType.OR, prevChar + self.currentChar)  # Add an OR token type
             else:
-                self.abort("Expected ||, got |", lineNumber =self.lineNumber, line=self.source[self.lineStart:self.currentPos + 1])
+                report("Expected ||, got |", lineNumber =self.lineNumber, line=self.source[self.lineStart:self.currentPos + 1])
 
         # ---------------- DATA TYPES ----------------
         elif self.currentChar == '\"':
@@ -130,10 +130,10 @@ class Lexer:
             while self.currentChar != '\"' and self.currentChar != '\0':
                 if self.currentChar in ['\\', '\n', '\t']:
                     message= f"(Lexer) Illegal character in string: {repr(self.currentChar)}"   #repr to display \n as well
-                    self.abort(message, type="Syntax", lineNumber=self.lineNumber,line= self.source[self.lineStart:self.currentPos + 1])
+                    report(message, type="Syntax", lineNumber=self.lineNumber,line= self.source[self.lineStart:self.currentPos + 1])
                 self.nextChar()
             if self.currentChar == '\0':
-                self.abort("Unterminated string", type="Syntax", lineNumber=self.lineNumber, line=self.source[self.lineStart:self.currentPos + 1])
+                report("Unterminated string", type="Syntax", lineNumber=self.lineNumber, line=self.source[self.lineStart:self.currentPos + 1])
             string = self.source[startPos:self.currentPos] 
             token = Token(TokenType.STRING, string)
             
@@ -146,7 +146,7 @@ class Lexer:
                 self.nextChar()
                 if not self.peek().isdigit():
                     message = f"(Lexer) Illegal character in number: {self.peek()}"
-                    self.abort(message, type="Syntax", lineNumber=self.lineNumber, line=self.source[self.lineStart:self.currentPos + 1])
+                    report(message, type="Syntax", lineNumber=self.lineNumber, line=self.source[self.lineStart:self.currentPos + 1])
                 while self.peek().isdigit():
                     self.nextChar()
             # Extract the number as a string and convert to float
@@ -157,7 +157,7 @@ class Lexer:
             except ValueError:
                 # Handle conversion error
                 message = f"(Lexer) Invalid number format: {number_str}"
-                self.abort(message, type="Syntax", lineNumber=self.lineNumber, line=self.source[self.lineStart:self.currentPos + 1])
+                report(message, type="Syntax", lineNumber=self.lineNumber, line=self.source[self.lineStart:self.currentPos + 1])
             token = Token(TokenType.NUMBER, number)
         # ---------------- ALPHA-NUM ----------------
         elif self.currentChar.isalpha() or self.currentChar == '_':
@@ -171,6 +171,9 @@ class Lexer:
             # Check for boolean literals
             if tokText == "true" or tokText == "false":
                 token = Token(TokenType.BOOLEAN, tokText)
+            # Check for null literal
+            elif tokText == "null":
+                token = Token(TokenType.NULL, tokText)
             else:
                 # Check if the token is a keyword
                 keyword = Token.checkIfKeyword(tokText)
@@ -191,11 +194,7 @@ class Lexer:
             token = Token(TokenType.SEMICOLON, self.currentChar)
             
         elif self.currentChar == '\n':
-            if self.lastToken and self.lastToken.type != TokenType.NEWLINE:
-                token = Token(TokenType.NEWLINE, '\n')
-            else:
-                self.nextChar()
-                return self.getToken()
+            token = Token(TokenType.NEWLINE, '\n')
 
             
         elif self.currentChar == '\0':
@@ -203,7 +202,7 @@ class Lexer:
             
         else:
             message= f"(Lexer) Unknown token: {self.currentChar}"
-            self.abort(message, type="Syntax",lineNumber = self.lineNumber, line = self.source[self.lineStart:self.currentPos + 1])
+            report(message, type="Syntax",lineNumber = self.lineNumber, line = self.source[self.lineStart:self.currentPos + 1])
             
         self.lastToken = token
         self.nextChar()

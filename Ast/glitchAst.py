@@ -51,8 +51,9 @@ class Block(ASTNode):
     def print_content(self, indent=0):
         print(" " * indent + "Block")
         for stmt in self.statements:
-            stmt.print_content(indent + 2)
-
+            if stmt is not None:
+                stmt.print_content(indent + 2)
+                
 class VariableDeclaration(ASTNode):
     def __init__(self, var_name, expression):
         self.name = var_name
@@ -255,6 +256,43 @@ class Expression(ASTNode):
         self.left.print_content(indent + 2)
         print(" " * (indent + 2) + f"Operator: {self.operator}")
         self.right.print_content(indent + 2)
+        
+class BinaryOp(ASTNode):
+    def __init__(self, left, operator, right):
+        self.left = left
+        self.operator = operator
+        self.right = right
+
+    def __repr__(self):
+        return f"BinaryOp({self.left}, {self.operator}, {self.right})"
+
+    def __eq__(self, other):
+        return (isinstance(other, BinaryOp) and
+                self.left == other.left and
+                self.operator == other.operator and
+                self.right == other.right)
+
+    def print_content(self, indent=0):
+        print(" " * indent + f"BinaryOp (Operator: {self.operator})")
+        self.left.print_content(indent + 2)
+        self.right.print_content(indent + 2)
+
+class UnaryOp(ASTNode):
+    def __init__(self, operator, operand):
+        self.operator = operator
+        self.operand = operand
+
+    def __repr__(self):
+        return f"Unary({self.operator}, {self.operand})"
+
+    def __eq__(self, other):
+        return (isinstance(other, Unary) and
+                self.operator == other.operator and
+                self.operand == other.operand)
+
+    def print_content(self, indent=0):
+        print(" " * indent + f"Unary (Operator: {self.operator})")
+        self.operand.print_content(indent + 2)
 
 class Primary(ASTNode):
     def __init__(self, value):
@@ -320,33 +358,12 @@ class String(ASTNode):
     def print_content(self, indent=0):
         print(" " * indent + f"String: {self.value}")
 
-class SymbolTable:
-    def __init__(self):
-        self.scopes = [{}]
+class Null:
+    def __repr__(self):
+        return "Null()"
     
-    def enter_scope(self):
-        self.scopes.append({})
-    
-    def exit_scope(self):
-        if len(self.scopes) > 1:
-            self.scopes.pop()
-        else:
-            raise Exception("Attempted to exit global scope")
-    
-    def add(self, name, value):
-        if name in self.scopes[-1]:
-            raise Exception(f"Symbol '{name}' already declared in this scope")
-        self.scopes[-1][name] = value
-    
-    def lookup(self, name):
-        for scope in reversed(self.scopes):
-            if name in scope:
-                return scope[name]
-        return None
+    def __eq__(self, other):
+        return isinstance(other, Null)
 
-    def update(self, name, value):
-        for scope in reversed(self.scopes):
-            if name in scope:
-                scope[name] = value
-                return
-        raise Exception(f"Symbol '{name}' not found in any scope")
+    def print_content(self, indent=0):
+        print(" " * indent + "Null")

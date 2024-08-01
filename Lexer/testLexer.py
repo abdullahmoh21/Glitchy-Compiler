@@ -1,4 +1,4 @@
-from lexicalAnalysis.lexer import *
+from .lexer import *
 import sys
 import os
 
@@ -30,7 +30,7 @@ def main():
         source = inputFile.read()
         
     # Initialize the lexer and print generated tokens.
-    lexer = Lexer(source,abort)
+    lexer = Lexer(source)
     token = lexer.getToken()
     while token.type != TokenType.EOF:
         print(f"Token: {token.type.name}, Value: {repr(token.value)}")

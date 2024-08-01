@@ -30,6 +30,7 @@ class TokenType(Enum):
     BOOLEAN = 2
     VAR_NAME = 3
     STRING = 4
+    NULL = 5
     # Braces and Parentheses.
     LBRACE = 5     # {
     RBRACE = 6     # }
