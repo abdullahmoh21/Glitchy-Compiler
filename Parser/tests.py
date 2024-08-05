@@ -3,10 +3,11 @@ import sys
 import os
 from Lexer import *
 from Parser import *
+from Ast import *
 from Error import report
 
 
-#  All my tests are in this class. to run all tests: python3 -m unittest parsing.tests
+#  All my parser tests are in this class. to run all tests: python3 -m unittest parsing.tests
 class TestParser(unittest.TestCase):
 
     def test_simple_set_and_print(self):
@@ -15,27 +16,64 @@ class TestParser(unittest.TestCase):
         print("Hello, world")
         '''
         expected_ast = Program([
-            VariableDeclaration("x", Number(42)),
-            Print(String("Hello, world"))
-        ])
+            VariableDeclaration("x", Integer(42), 2),
+            Print(String("Hello, world"), 3)
+        ], 1)
         self.run_test(source_code, expected_ast)
 
     def test_if_statement(self):
-        source_code = '''
+        source_code = '''   
         set x = 10
         if (x == 10) {
             print("x is ten")
         }
         '''
         expected_ast = Program([
-            VariableDeclaration("x", Number(10)),
+            VariableDeclaration("x", Integer(10), 2),
             If(
-                Comparison(VariableReference("x"), "==", Number(10)),
+                Comparison(VariableReference("x", 3), "==", Integer(10, 3), 3),
                 Block([
-                    Print(String("x is ten"))
-                ])
+                    Print(String("x is ten"), 4)
+                ]),
+                3
             )
-        ])
+        ], 1)
+        self.run_test(source_code, expected_ast)
+
+    def test_elseif_statement(self):
+        source_code = '''
+        set x = 5
+        if (x > 10) {
+            print("x is greater than ten")
+        } elif (x < 10) {
+            print("x is less than ten")
+        } else {
+            print("x is ten")
+        }
+        '''
+        expected_ast = Program([
+            VariableDeclaration("x", Integer(5), 2),
+            If(
+                Comparison(VariableReference("x", 3), ">", Integer(10, 3), 3),
+                Block([
+                    Print(String("x is greater than ten"), 4)
+                ]),
+                elifNodes=[
+                    (
+                        Comparison(VariableReference("x", 5), "<", Integer(10, 5), 5),
+                        Block([
+                            Print(String("x is less than ten"), 6)
+                        ])
+                    )
+                ],
+                elseBlock=Block([
+                    Print(String("x is ten"), 8)
+                ]),
+                line=3
+            )
+        ], 1)
+
+        
         self.run_test(source_code, expected_ast)
 
     def test_nested_if_statement(self):
@@ -50,24 +88,27 @@ class TestParser(unittest.TestCase):
         }
         '''
         expected_ast = Program([
-            VariableDeclaration("x", Number(10)),
+            VariableDeclaration("x", Integer(10), 2),
             If(
-                Comparison(VariableReference("x"), ">", Number(1)),
+                Comparison(VariableReference("x", 3), ">", Integer(1, 3), 3),
                 Block([
                     If(
-                        Comparison(VariableReference("x"), ">", Number(5)),
+                        Comparison(VariableReference("x", 4), ">", Integer(5, 4), 4),
                         Block([
                             If(
-                                Comparison(VariableReference("x"), "==", Number(10)),
+                                Comparison(VariableReference("x", 5), "==", Integer(10, 5), 5),
                                 Block([
-                                    Print(String("x is ten"))
-                                ])
+                                    Print(String("x is ten"), 6)
+                                ]),
+                                5
                             )
-                        ])
+                        ]),
+                        4
                     )
-                ])
+                ]),
+                3
             )
-        ])
+        ], 1)
         self.run_test(source_code, expected_ast)
 
     def test_while_loop(self):
@@ -78,34 +119,17 @@ class TestParser(unittest.TestCase):
         }
         '''
         expected_ast = Program([
-            VariableDeclaration("x", Number(0)),
+            VariableDeclaration("x", Integer(0), 2),
             While(
-                Comparison(VariableReference("x"), "<", Number(10)),
+                Comparison(VariableReference("x", 3), "<", Integer(10, 3), 3),
                 Block([
                     VariableUpdated("x", BinaryOp(
-                        VariableReference("x"), "+", Number(1)
-                    ))
-                ])
+                        VariableReference("x", 4), "+", Integer(1, 4), 4
+                    ), 4)
+                ]),
+                3
             )
-        ])
-        self.run_test(source_code, expected_ast)
-
-    def test_for_loop(self):
-        source_code = '''
-        for (i = 0; i < 10; i++) {
-            print("Looping")
-        }
-        '''
-        expected_ast = Program([
-            For(
-                VariableDeclaration("i", Number(0)),  # Initialization
-                Comparison(VariableReference("i"), "<", Number(10)),  # Condition
-                VariableUpdated("i", BinaryOp(VariableReference("i"), "+", Number(1))),  # Increment
-                Block([
-                    Print(String("Looping"))
-                ])  # Body
-            )
-        ])
+        ], 1)
         self.run_test(source_code, expected_ast)
 
     def test_input_statement(self):
@@ -114,9 +138,9 @@ class TestParser(unittest.TestCase):
         print(foo)
         '''
         expected_ast = Program([
-            Input(VariableReference("foo")),  # Changed from "null" to None for input
-            Print(VariableReference("foo"))
-        ])
+            Input(VariableReference("foo", 2), 2),
+            Print(VariableReference("foo", 3), 3)
+        ], 1)
         self.run_test(source_code, expected_ast)
 
     def test_complex_expression(self):
@@ -128,38 +152,312 @@ class TestParser(unittest.TestCase):
                 BinaryOp(
                     BinaryOp(
                         BinaryOp(
-                            VariableReference("a"), "+", VariableReference("b")
+                            VariableReference("a", 2), "+", VariableReference("b", 2), 2
                         ),
                         "*",
                         BinaryOp(
-                            VariableReference("c"), "-", VariableReference("d")
-                        )
+                            VariableReference("c", 2), "-", VariableReference("d", 2), 2
+                        ),
+                        2
                     ),
                     "/",
-                    VariableReference("e")
-                )
+                    VariableReference("e", 2), 2
+                ), 2
+            )
+        ], 1)
+        self.run_test(source_code, expected_ast)
+    
+    def test_complex_expression_1(self):
+        source_code = '''
+        set result = x + y > z && w == 1
+        '''
+        
+        expected_ast = Program([
+            VariableDeclaration(
+                "result",
+                LogicalOp(
+                    Comparison(
+                        BinaryOp(
+                            VariableReference("x", 2),
+                            "+",
+                            VariableReference("y", 2),
+                            2
+                        ),
+                        ">",
+                        VariableReference("z", 2),
+                        2
+                    ),
+                    "&&",
+                    Comparison(
+                        VariableReference("w", 2),
+                        "==",
+                        Integer(1, 2),
+                        2
+                    ),
+                    2
+                ), 2
+            )
+        ], 1)
+
+        self.run_test(source_code, expected_ast)
+
+    def test_nested_logical_and_comparison(self):
+        source_code = '''
+        set result = (x + y > z && w == 1) || (a * b < c - d)
+        '''
+        
+        expected_ast = Program([
+            VariableDeclaration(
+                "result",
+                LogicalOp(
+                    LogicalOp(
+                        Comparison(
+                            BinaryOp(
+                                VariableReference("x", 2),
+                                "+",
+                                VariableReference("y", 2),
+                                2
+                            ),
+                            ">",
+                            VariableReference("z", 2),
+                            2
+                        ),
+                        "&&",
+                        Comparison(
+                            VariableReference("w", 2),
+                            "==",
+                            Integer(1, 2),
+                            2
+                        ),
+                        2
+                    ),
+                    "||",
+                    Comparison(
+                        BinaryOp(
+                            VariableReference("a", 2),
+                            "*",
+                            VariableReference("b", 2),
+                            2
+                        ),
+                        "<",
+                        BinaryOp(
+                            VariableReference("c", 2),
+                            "-",
+                            VariableReference("d", 2),
+                            2
+                        ),
+                        2
+                    ),
+                    2
+                ), 2
+            )
+        ], 1)
+
+        self.run_test(source_code, expected_ast)
+
+    def test_mixed_arithmetic_comparison_logical(self):
+        source_code = '''
+        set result = ((x + y * z) > (w - 1) && (a / b) <= (c + d)) || e != f
+        '''
+        
+        expected_ast = Program([
+            VariableDeclaration(
+                "result",
+                LogicalOp(
+                    LogicalOp(
+                        Comparison(
+                            BinaryOp(
+                                VariableReference("x", 2),
+                                "+",
+                                BinaryOp(
+                                    VariableReference("y", 2),
+                                    "*",
+                                    VariableReference("z", 2),
+                                    2
+                                ),
+                                2
+                            ),
+                            ">",
+                            BinaryOp(
+                                VariableReference("w", 2),
+                                "-",
+                                Integer(1, 2),
+                                2
+                            ),
+                            2
+                        ),
+                        "&&",
+                        Comparison(
+                            BinaryOp(
+                                VariableReference("a", 2),
+                                "/",
+                                VariableReference("b", 2),
+                                2
+                            ),
+                            "<=",
+                            BinaryOp(
+                                VariableReference("c", 2),
+                                "+",
+                                VariableReference("d", 2),
+                                2
+                            ),
+                            2
+                        ),
+                        2
+                    ),
+                    "||",
+                    Comparison(
+                        VariableReference("e", 2),
+                        "!=",
+                        VariableReference("f", 2),
+                        2
+                    ),
+                    2
+                ), 2
+            )
+        ], 1)
+
+        self.run_test(source_code, expected_ast)
+
+    def test_deeply_nested_parentheses(self):
+        source_code = '''
+        set result = ((((x + 1) * (y - 2)) / 3) == z) && !(a || b)
+        '''
+        
+        expected_ast = Program([
+            VariableDeclaration(
+                name='result',
+                expression=BinaryOp(
+                    operator='&&',
+                    left=BinaryOp(
+                        operator='==',
+                        left=BinaryOp(
+                            operator='/',
+                            left=BinaryOp(
+                                operator='*',
+                                left=BinaryOp(
+                                    operator='+',
+                                    left=VariableReference(name='x'),
+                                    right=Number(value=1),
+                                    line=1  
+                                ),
+                                right=BinaryOp(
+                                    operator='-',
+                                    left=VariableReference(name='y'),
+                                    right=Number(value=2),
+                                    line=1  
+                                ),
+                                line=1  
+                            ),
+                            right=Number(value=3),
+                            line=1  
+                        ),
+                        right=VariableReference(name='z'),
+                        line=1  
+                    ),
+                    right=UnaryOp(
+                        operator='!',
+                        operand=BinaryOp(
+                            operator='||',
+                            left=VariableReference(name='a'),
+                            right=VariableReference(name='b'),
+                            line=1  
+                        ),
+                        line=1  
+                    ),
+                    line=1  
+                ),
+                line=1  
+            )
+        ], line=1)  
+        self.run_test(source_code, expected_ast)
+        
+    def test_multiple_levels_of_operations(self):
+        source_code = '''
+        set result = ((x + y) * (z - w)) / ((a + b) * (c - d)) + e
+        '''
+        
+        expected_ast = Program([
+            VariableDeclaration(
+                'result',
+                expression=BinaryOp(
+                    operator='+',
+                    left=BinaryOp(
+                        operator='/',
+                        left=BinaryOp(
+                            operator='*',
+                            left=BinaryOp(
+                                operator='+',
+                                left=VariableReference(name='x',line =1),
+                                right=VariableReference(name='y',line =1),
+                                line=1
+                            ),
+                            right=BinaryOp(
+                                operator='-',
+                                left=VariableReference(name='z',line =1),
+                                right=VariableReference(name='w',line =1),
+                                line=1
+                            ),
+                            line=1
+                        ),
+                        right=BinaryOp(
+                            operator='*',
+                            left=BinaryOp(
+                                operator='+',
+                                left=VariableReference(name='a',line =1),
+                                right=VariableReference(name='b',line =1),
+                                line=1
+                            ),
+                            right=BinaryOp(
+                                operator='-',
+                                left=VariableReference(name='c',line =1),
+                                right=VariableReference(name='d',line =1),
+                                line=1
+                            ),
+                            line=1
+                        ),
+                        line=1
+                    ),
+                    right=VariableReference(name='e',line =1),
+                    line=1
+                ),
+                line=1
             )
         ])
+
+        
         self.run_test(source_code, expected_ast)
 
-    def test_missing_variable(self):
+    def test_expression_with_unary_operators(self):
         source_code = '''
-        print(x)
+        set result = -x + y * -z
         '''
+        
         expected_ast = Program([
-            Print(VariableReference("x"))
-        ])
-        self.run_test(source_code, expected_ast)
+            VariableDeclaration(
+                "result",
+                BinaryOp(
+                    UnaryOp(
+                        "-",
+                        VariableReference("x", 2),
+                        2
+                    ),
+                    "+",
+                    BinaryOp(
+                        VariableReference("y", 2),
+                        "*",
+                        UnaryOp(
+                            "-",
+                            VariableReference("z", 2),
+                            2
+                        ),
+                        2
+                    ),
+                    2
+                ), 2
+            )
+        ], 1)
 
-    def test_uninitialized_variable(self):
-        source_code = '''
-        set x = y + 1
-        '''
-        expected_ast = Program([
-            VariableDeclaration("x", BinaryOp(
-                VariableReference("y"), "+", Number(1)
-            ))
-        ])
         self.run_test(source_code, expected_ast)
 
     def test_nested_blocks(self):
@@ -173,20 +471,22 @@ class TestParser(unittest.TestCase):
         }
         '''
         expected_ast = Program([
-            VariableDeclaration("x", Number(1)),
+            VariableDeclaration("x", Integer(1), 2),
             If(
-                Comparison(VariableReference("x"), "==", Number(1)),
+                Comparison(VariableReference("x", 3), "==", Integer(1, 3), 3),
                 Block([
-                    VariableDeclaration("y", Number(2)),
+                    VariableDeclaration("y", Integer(2), 4),
                     If(
-                        Comparison(VariableReference("y"), "==", Number(2)),
+                        Comparison(VariableReference("y", 5), "==", Integer(2, 5), 5),
                         Block([
-                            Print(String("y is two"))
-                        ])
+                            Print(String("y is two"), 6)
+                        ]),
+                        5
                     )
-                ])
+                ]),
+                3
             )
-        ])
+        ], 1)
         self.run_test(source_code, expected_ast)
 
     def test_expression_with_parentheses(self):
@@ -198,20 +498,23 @@ class TestParser(unittest.TestCase):
                 BinaryOp(
                     BinaryOp(
                         BinaryOp(
-                            VariableReference("a"),
+                            VariableReference("a", 2),
                             "+",
                             BinaryOp(
-                                VariableReference("b"), "*", VariableReference("c")
-                            )
+                                VariableReference("b", 2), "*", VariableReference("c", 2), 2
+                            ),
+                            2
                         ),
                         "-",
-                        VariableReference("d")
+                        VariableReference("d", 2),
+                        2
                     ),
                     "/",
-                    VariableReference("e")
-                )
+                    VariableReference("e", 2),
+                    2
+                ), 2
             )
-        ])
+        ], 1)
         self.run_test(source_code, expected_ast)
 
     def test_empty_block(self):
@@ -221,12 +524,13 @@ class TestParser(unittest.TestCase):
         }
         '''
         expected_ast = Program([
-            VariableDeclaration("x", Number(10)),
+            VariableDeclaration("x", Integer(10), 2),
             If(
-                Comparison(VariableReference("x"), ">", Number(5)),
-                Block([])  # Empty block
+                Comparison(VariableReference("x", 3), ">", Integer(5, 3), 3),
+                Block([]),
+                3
             )
-        ])
+        ], 1)
         self.run_test(source_code, expected_ast)
 
     def test_for_loop_with_complex_update(self):
@@ -236,161 +540,183 @@ class TestParser(unittest.TestCase):
         }
         '''
         expected_ast = Program([
-            For(
-                VariableDeclaration("i", Number(0)),
-                Comparison(VariableReference("i"), "<", Number(10)),
-                BinaryOp(
-                    VariableReference("i"), "+", Number(2)
-                ),
-                Block([
-                    Print(String("Looping"))
-                ])
-            )
-        ])
+            Block([
+                VariableDeclaration("i", Integer(0), 2),  # Initialization
+                While(
+                    Comparison(VariableReference("i", 2), "<", Integer(10, 2), 2),  # Condition
+                    Block([
+                        Print(String("Looping"), 3),
+                        VariableUpdated("i",BinaryOp(VariableReference("i", 3), "+", Integer(2, 3), 3), 3)  # Increment
+                    ]),
+                    2
+                )
+            ])
+        ], 1)
+        self.run_test(source_code, expected_ast)
+
+    def test_for_loop(self):
+        source_code = '''
+        for (i = 0; i < 10; i++) {
+            print("Looping")
+        }
+        '''
+        expected_ast = Program([
+            Block([
+                VariableDeclaration("i", Integer(0), 2),  # Initialization
+                While(
+                    Comparison(VariableReference("i", 2), "<", Integer(10, 2), 2),  # Condition
+                    Block([
+                        Print(String("Looping"), 3),
+                        VariableUpdated("i", BinaryOp(VariableReference("i", 3), "+", Integer(1, 3), 3), 3)  # Increment
+                    ]),
+                    2
+                )
+            ])
+        ], 1)
         self.run_test(source_code, expected_ast)
         
     def run_test(self, source_code, expected_ast):
         lexer = Lexer(source_code)
         parser = Parser(lexer)
-        generated_ast = parser.program()
+        generated_ast = parser.parse()
         
         if generated_ast is not None:
-            print("Generated AST:")
+            print("\nGenerated AST:")
             generated_ast.print_content()
         
-        print("Expected AST:")
+        print("\nExpected AST:")
         expected_ast.print_content()
         
         if not TestParser.compare_ast(generated_ast, expected_ast):
             self.fail("\n[ERROR] Generated AST does not match expected AST\n")
     
     @staticmethod
-    def compare_ast(node1, node2, path=""):
-        if type(node1) != type(node2):
-            print(f"Type mismatch at {path}: {type(node1).__name__} != {type(node2).__name__}")
+    def compare_ast(generated, expected, path=""):
+        if type(generated) != type(expected):
+            print(f"Type mismatch at {path}: {type(generated).__name__} != {type(expected).__name__}")
             return False
 
-        if isinstance(node1, Program):
-            if len(node1.statements) != len(node2.statements):
-                print(f"Number of statements mismatch at {path}: {len(node1.statements)} != {len(node2.statements)}")
+        if isinstance(generated, Program):
+            if len(generated.statements) != len(expected.statements):
+                print(f"Integer of statements mismatch at {path}: {len(generated.statements)} != {len(expected.statements)}")
                 return False
-            for i, (stmt1, stmt2) in enumerate(zip(node1.statements, node2.statements)):
+            for i, (stmt1, stmt2) in enumerate(zip(generated.statements, expected.statements)):
                 if not TestParser.compare_ast(stmt1, stmt2, path + f".statements[{i}]"):
                     return False
 
-        elif isinstance(node1, VariableDeclaration):
-            if node1.name != node2.name:
-                print(f"VariableDeclaration name mismatch at {path}: {node1.name} != {node2.name}")
+        elif isinstance(generated, VariableDeclaration):
+            if generated.name != expected.name:
+                print(f"VariableDeclaration name mismatch at {path}: {generated.name} != {expected.name}")
                 return False
-            if not TestParser.compare_ast(node1.value, node2.value, path + ".value"):
-                print(f"VariableDeclaration's value mismatch at {path}: {node1.value} != {node2.value}")
-                return False
-
-        elif isinstance(node1, VariableUpdated):
-            if node1.name != node2.name:
-                print(f"VariableUpdated name mismatch at {path}: {node1.name} != {node2.name}")
-                return False
-            if not TestParser.compare_ast(node1.value, node2.value, path + ".value"):
-                print(f"VariableUpdated's value mismatch at {path}: {node1.value} != {node2.value}")
+            if not TestParser.compare_ast(generated.value, expected.value, path + ".value"):
+                print(f"VariableDeclaration's value mismatch at {path}: {generated.value} != {expected.value}")
                 return False
 
-        elif isinstance(node1, VariableReference):
-            if node1.name != node2.name:
-                print(f"VariableReference name mismatch at {path}: {node1.name} != {node2.name}")
+        elif isinstance(generated, VariableUpdated):
+            if generated.name != expected.name:
+                print(f"VariableUpdated name mismatch at {path}: {generated.name} != {expected.name}")
+                return False
+            if not TestParser.compare_ast(generated.value, expected.value, path + ".value"):
+                print(f"VariableUpdated's value mismatch at {path}: {generated.value} != {expected.value}")
                 return False
 
-        elif isinstance(node1, Print):
-            if not TestParser.compare_ast(node1.expression, node2.expression, path + ".expression"):
+        elif isinstance(generated, VariableReference):
+            if generated.name != expected.name:
+                print(f"VariableReference name mismatch at {path}: {generated.name} != {expected.name}")
                 return False
 
-        elif isinstance(node1, If):
-            if not TestParser.compare_ast(node1.comparison, node2.comparison, path + ".comparison"):
+        elif isinstance(generated, Print):
+            if not TestParser.compare_ast(generated.expression, expected.expression, path + ".expression"):
                 return False
-            if len(node1.block.statements) != len(node2.block.statements):
-                print(f"If statement block number of statements mismatch at {path}: {len(node1.block.statements)} != {len(node2.block.statements)}")
+
+        elif isinstance(generated, If):
+            if not TestParser.compare_ast(generated.comparison, expected.comparison, path + ".comparison"):
                 return False
-            for i, (stmt1, stmt2) in enumerate(zip(node1.block.statements, node2.block.statements)):
+            if len(generated.block.statements) != len(expected.block.statements):
+                print(f"If statement block number of statements mismatch at {path}: {len(generated.block.statements)} != {len(expected.block.statements)}")
+                return False
+            for i, (stmt1, stmt2) in enumerate(zip(generated.block.statements, expected.block.statements)):
+                if not TestParser.compare_ast(stmt1, stmt2, path + f".block.statements[{i}]"):
+                    return False
+                
+        elif isinstance(generated, While):
+            print(f"Generated While block statements count: {len(generated.block.statements)} at {path}")
+            print(f"Expected While block statements count: {len(expected.block.statements)} at {path}")
+            if not TestParser.compare_ast(generated.comparison, expected.comparison, path + ".comparison"):
+                return False
+            if len(generated.block.statements) != len(expected.block.statements):
+                print(f"While statement block number of statements mismatch at {path}: {len(generated.block.statements)} != {len(expected.block.statements)}")
+                return False
+            for i, (stmt1, stmt2) in enumerate(zip(generated.block.statements, expected.block.statements)):
                 if not TestParser.compare_ast(stmt1, stmt2, path + f".block.statements[{i}]"):
                     return False
 
-        elif isinstance(node1, While):
-            if not TestParser.compare_ast(node1.comparison, node2.comparison, path + ".comparison"):
-                return False
-            if len(node1.block.statements) != len(node2.block.statements):
-                print(f"While statement block number of statements mismatch at {path}: {len(node1.block.statements)} != {len(node2.block.statements)}")
-                return False
-            for i, (stmt1, stmt2) in enumerate(zip(node1.block.statements, node2.block.statements)):
-                if not TestParser.compare_ast(stmt1, stmt2, path + f".block.statements[{i}]"):
-                    return False
+        elif isinstance(generated, Block):
+            if len(expected.statements) == 1 and isinstance(expected.statements[0], Block):
+                return TestParser.compare_ast(generated, expected.statements[0], path)
+            else:
+                return TestParser.compare_lists(generated.statements, expected.statements, path + ".statements")
 
-        elif isinstance(node1, For):
-            if not TestParser.compare_ast(node1.variable, node2.variable, path + ".variable"):
-                return False
-            if not TestParser.compare_ast(node1.comparison, node2.comparison, path + ".comparison"):
-                return False
-            if not TestParser.compare_ast(node1.increment, node2.increment, path + ".increment"):
-                return False
-            if len(node1.block.statements) != len(node2.block.statements):
-                print(f"For statement block number of statements mismatch at {path}: {len(node1.block.statements)} != {len(node2.block.statements)}")
-                return False
-            for i, (stmt1, stmt2) in enumerate(zip(node1.block.statements, node2.block.statements)):
-                if not TestParser.compare_ast(stmt1, stmt2, path + f".block.statements[{i}]"):
-                    return False
-
-        elif isinstance(node1, Input):
-            if not TestParser.compare_ast(node1.var_name, node2.var_name, path + ".var_name"):
+        elif isinstance(generated, Input):
+            if not TestParser.compare_ast(generated.var_name, expected.var_name, path + ".var_name"):
                 return False
 
-        elif isinstance(node1, Comparison):
-            if not TestParser.compare_ast(node1.left, node2.left, path + ".left"):
+        elif isinstance(generated, Comparison):
+            if not TestParser.compare_ast(generated.left, expected.left, path + ".left"):
                 return False
-            if node1.operator != node2.operator:
-                print(f"Operator mismatch at {path}.operator: {node1.operator} != {node2.operator}")
+            if generated.operator != expected.operator:
+                print(f"Operator mismatch at {path}.operator: {generated.operator} != {expected.operator}")
                 return False
-            if not TestParser.compare_ast(node1.right, node2.right, path + ".right"):
-                return False
-
-        elif isinstance(node1, BinaryOp):
-            if not TestParser.compare_ast(node1.left, node2.left, path + ".left"):
-                return False
-            if node1.operator != node2.operator:
-                print(f"Operator mismatch at {path}.operator: {node1.operator} != {node2.operator}")
-                return False
-            if not TestParser.compare_ast(node1.right, node2.right, path + ".right"):
+            if not TestParser.compare_ast(generated.right, expected.right, path + ".right"):
                 return False
 
-        elif isinstance(node1, UnaryOp):
-            if node1.operator != node2.operator:
-                print(f"Unary operator mismatch at {path}: {node1.operator} != {node2.operator}")
+        elif isinstance(generated, BinaryOp):
+            if not TestParser.compare_ast(generated.left, expected.left, path + ".left"):
                 return False
-            if not TestParser.compare_ast(node1.operand, node2.operand, path + ".operand"):
+            if generated.operator != expected.operator:
+                print(f"Operator mismatch at {path}.operator: {generated.operator} != {expected.operator}")
                 return False
-
-        elif isinstance(node1, VariableUpdated):
-            if node1.name != node2.name:
-                print(f"VariableUpdated name mismatch at {path}: {node1.name} != {node2.name}")
+            if not TestParser.compare_ast(generated.right, expected.right, path + ".right"):
                 return False
-            if not TestParser.compare_ast(node1.value, node2.value, path + ".value"):
-                print(f"VariableUpdated's value mismatch at {path}: {node1.value} != {node2.value}")
+            
+        elif isinstance(generated, LogicalOp):
+            if not TestParser.compare_ast(generated.left, expected.left, path + ".left"):
                 return False
-
-        elif isinstance(node1, VariableReference):
-            if node1.name != node2.name:
-                print(f"VariableReference name mismatch at {path}: {node1.name} != {node2.name}")
+            if generated.operator != expected.operator:
+                print(f"Operator mismatch at {path}.operator: {generated.operator} != {expected.operator}")
+                return False
+            if not TestParser.compare_ast(generated.right, expected.right, path + ".right"):
                 return False
 
-        elif isinstance(node1, Number):
-            if node1.value != node2.value:
-                print(f"Number value mismatch at {path}: {node1.value} != {node2.value}")
+        elif isinstance(generated, UnaryOp):
+            if generated.operator != expected.operator:
+                print(f"Unary operator mismatch at {path}: {generated.operator} != {expected.operator}")
+                return False
+            if not TestParser.compare_ast(generated.left, expected.left, path + ".operand"):
                 return False
 
-        elif isinstance(node1, String):
-            if node1.value != node2.value:
-                print(f"String value mismatch at {path}: {node1.value} != {node2.value}")
+        elif isinstance(generated, Integer):
+            if generated.value != expected.value:
+                print(f"Integer value mismatch at {path}: {generated.value} != {expected.value}")
+                return False
+
+        elif isinstance(generated, String):
+            if generated.value != expected.value:
+                print(f"String value mismatch at {path}: {generated.value} != {expected.value}")
                 return False
 
         else:
-            print(f"Unsupported node type at {path}: {type(node1).__name__}")
+            print(f"Unsupported node type at {path}: {type(generated).__name__}")
             return False
 
+        return True
+
+    @staticmethod
+    def compare_lists(generated_list, expected_list, path):
+        if len(generated_list) != len(expected_list):
+            print(f"List length mismatch at {path}: {len(generated_list)} != {len(expected_list)}")
+            return False
+        for i, (generated, expected) in enumerate(zip(generated_list, expected_list)):
+            if not TestParser.compare_ast(generated, expected, path + f"[{i}]"):
+                return False
         return True

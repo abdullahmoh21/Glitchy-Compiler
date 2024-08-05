@@ -19,10 +19,11 @@ class Lexer:
             self.currentChar = '\0'
         else:
             self.currentChar = self.source[self.currentPos]
-        
-        if self.currentChar == '\n':
-            self.lineNumber += 1
-            self.lineStart = self.currentPos + 1
+            
+            if self.currentChar == '\n':
+                self.lineNumber += 1
+                self.lineStart = self.currentPos + 1
+
 
     def peek(self):
         if self.currentPos + 1 >= len(self.source):
@@ -111,7 +112,7 @@ class Lexer:
                 self.nextChar()
                 token = Token(TokenType.AND, prevChar + self.currentChar)  # Add an AND token type
             else:
-                report("Expected &&, got &", lineNumber=self.lineNumber, line=self.source[self.lineStart:self.currentPos + 1])
+                report("Expected &&, got &", lineNumber=self.lineNumber)
 
         elif self.currentChar == '|':
             # || or | (error)?
@@ -120,46 +121,70 @@ class Lexer:
                 self.nextChar()
                 token = Token(TokenType.OR, prevChar + self.currentChar)  # Add an OR token type
             else:
-                report("Expected ||, got |", lineNumber =self.lineNumber, line=self.source[self.lineStart:self.currentPos + 1])
+                report("Expected ||, got |", lineNumber =self.lineNumber)
 
         # ---------------- DATA TYPES ----------------
+        
+        # STRINGS
         elif self.currentChar == '\"':
-            # parse string
             self.nextChar()
+            startLine = self.lineNumber
             startPos = self.currentPos
-            while self.currentChar != '\"' and self.currentChar != '\0':
-                if self.currentChar in ['\\', '\n', '\t']:
-                    message= f"(Lexer) Illegal character in string: {repr(self.currentChar)}"   #repr to display \n as well
-                    report(message, type="Syntax", lineNumber=self.lineNumber,line= self.source[self.lineStart:self.currentPos + 1])
+
+            while self.currentChar != '\"' and self.currentChar != '\n':
+                if self.currentChar in ['\\', '\t','\r']:
+                    message = f"(Lexer) Illegal character in string: {repr(self.currentChar)}"  # repr to display \n as well
+                    report(message, type="Syntax", lineNumber=startLine)
                 self.nextChar()
-            if self.currentChar == '\0':
-                report("Unterminated string", type="Syntax", lineNumber=self.lineNumber, line=self.source[self.lineStart:self.currentPos + 1])
-            string = self.source[startPos:self.currentPos] 
-            token = Token(TokenType.STRING, string)
-            
+
+            if self.currentChar == '\n':
+                message = "(Lexer) Unterminated string literal"
+                report(message, type="Syntax", lineNumber=startLine)
+                token = Token(TokenType.ERROR, None) 
+            else:
+                # Create token for the string
+                string = self.source[startPos:self.currentPos]
+                token = Token(TokenType.STRING, string)
+        
+        # INTEGERS AND FLOATS  
         elif self.currentChar.isdigit():
             # parse number
             startPos = self.currentPos
+            is_float = False
             while self.peek().isdigit():
                 self.nextChar()
             if self.peek() == '.':
                 self.nextChar()
+                is_float = True
                 if not self.peek().isdigit():
                     message = f"(Lexer) Illegal character in number: {self.peek()}"
-                    report(message, type="Syntax", lineNumber=self.lineNumber, line=self.source[self.lineStart:self.currentPos + 1])
+                    report(message, type="Syntax", lineNumber=self.lineNumber)
                 while self.peek().isdigit():
                     self.nextChar()
-            # Extract the number as a string and convert to float
+            # Extract the number as a string
             number_str = self.source[startPos:self.currentPos + 1]
-            try:
-                # Convert to float if it contains a decimal point
-                number = float(number_str)
-            except ValueError:
-                # Handle conversion error
-                message = f"(Lexer) Invalid number format: {number_str}"
-                report(message, type="Syntax", lineNumber=self.lineNumber, line=self.source[self.lineStart:self.currentPos + 1])
-            token = Token(TokenType.NUMBER, number)
+            if is_float:
+                try:
+                    is_float = False
+                    # Convert to float
+                    number = float(number_str)
+                except ValueError:
+                    # Handle conversion error
+                    message = f"(Lexer) Invalid float format: {number_str}"
+                    report(message, type="Syntax", lineNumber=self.lineNumber)
+                token = Token(TokenType.FLOAT, number)
+            else:
+                try:
+                    # Convert to integer
+                    number = int(number_str)
+                except ValueError:
+                    # Handle conversion error
+                    message = f"(Lexer) Invalid integer format: {number_str}"
+                    report(message, type="Syntax", lineNumber=self.lineNumber)
+                token = Token(TokenType.INTEGER, number)
+
         # ---------------- ALPHA-NUM ----------------
+        
         elif self.currentChar.isalpha() or self.currentChar == '_':
             # Start of a variable name, keyword or boolean
             startPos = self.currentPos
@@ -181,7 +206,9 @@ class Lexer:
                     token = Token(TokenType.VAR_NAME, tokText)
                 else:
                     token = Token(keyword, tokText)
+                    
         # ---------------- PUNCTUATION ----------------
+        
         elif self.currentChar == '{':
             token = Token(TokenType.LBRACE, self.currentChar)   
         elif self.currentChar == '}':
@@ -202,7 +229,7 @@ class Lexer:
             
         else:
             message= f"(Lexer) Unknown token: {self.currentChar}"
-            report(message, type="Syntax",lineNumber = self.lineNumber, line = self.source[self.lineStart:self.currentPos + 1])
+            report(message, type="Syntax",lineNumber = self.lineNumber)
             
         self.lastToken = token
         self.nextChar()

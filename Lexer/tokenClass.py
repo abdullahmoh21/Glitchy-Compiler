@@ -24,27 +24,32 @@ class Token:
 
 # TokenType is our enum for all the types of tokens.
 class TokenType(Enum):
+    ERROR = -2
     EOF = -1
     NEWLINE = 0
-    NUMBER = 1
+    INTEGER = 1
     BOOLEAN = 2
     VAR_NAME = 3
     STRING = 4
     NULL = 5
+    FLOAT = 6
     # Braces and Parentheses.
-    LBRACE = 5     # {
-    RBRACE = 6     # }
-    LPAREN = 7     # (
-    RPAREN = 8     # )
-    SEMICOLON = 9  # ;
+    LBRACE = 7     # {
+    RBRACE = 8     # }
+    LPAREN = 9     # (
+    RPAREN = 10     # )
+    SEMICOLON = 11  # ;
+    # -------------------------------- #
     # Keywords.
     PRINT = 103  
     INPUT = 104
     SET = 105    
     IF = 106
     ELSE = 107
-    FOR = 108
-    WHILE = 109
+    ELIF = 108
+    FOR = 109
+    WHILE = 101
+    # -------------------------------- #
     # Operators.
     EQ = 301        # =
     PLUS = 302
@@ -59,6 +64,7 @@ class TokenType(Enum):
     GTEQ = 311      # >=
     INCREMENT = 312   # ++ 
     DECREMENT = 313   # --
+    # -------------------------------- #
     # Logical operators.
     AND = 401       # &&
     OR = 402        # ||

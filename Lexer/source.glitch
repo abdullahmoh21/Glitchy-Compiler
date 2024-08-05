@@ -1,3 +1,6 @@
-       set x = 10
-        if (x > 5) {
+        set x = 10
+        if (x == 10) {
+            print("x is ten")
+        } elif(x <0){
+            
         }

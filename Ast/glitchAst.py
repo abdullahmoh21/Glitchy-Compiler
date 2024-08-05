@@ -5,14 +5,6 @@ class ASTNode:
     def print_content(self, indent=0):
         raise NotImplementedError("Subclasses should implement this!")
 
-    def print_tree(self, type='structure'):
-        if type == 'structure':
-            self.print_structure()
-        elif type == 'content':
-            self.print_content()
-        else:
-            raise ValueError("Invalid type. Use 'structure' or 'content'.")
-
 class Program(ASTNode):
     def __init__(self, statements, symbols=None):
         self.statements = statements
@@ -38,6 +30,7 @@ class Program(ASTNode):
 class Block(ASTNode):
     def __init__(self, statements):
         self.statements = statements
+        # no need to store line number for block
 
     def __eq__(self, other):
         return isinstance(other, Block) and self.statements == other.statements
@@ -53,11 +46,14 @@ class Block(ASTNode):
         for stmt in self.statements:
             if stmt is not None:
                 stmt.print_content(indent + 2)
+            else:
+                print(" " * (indent+2) + "null")
                 
 class VariableDeclaration(ASTNode):
-    def __init__(self, var_name, expression):
-        self.name = var_name
+    def __init__(self, name, expression,line):
+        self.name = name
         self.value = expression
+        self.line = line
         
     def __eq__(self, other):
         return (isinstance(other, VariableDeclaration) and
@@ -68,7 +64,7 @@ class VariableDeclaration(ASTNode):
         return f"VariableDeclaration({self.name}, {self.value})"
         
     def accept(self, visitor):
-        return visitor.visit_variable_declaration(self)
+            return visitor.visit_variable(self)
 
     def print_content(self, indent=0):
         print(" " * indent + "VariableDeclaration")
@@ -79,8 +75,9 @@ class VariableDeclaration(ASTNode):
             print(" " * (indent + 2) + "Value: None")
 
 class VariableReference(ASTNode):
-    def __init__(self, var_name):
-        self.name = var_name
+    def __init__(self, name, line):
+        self.name = name
+        self.line = line
         
     def __eq__(self, other):
         return (isinstance(other, VariableReference) and self.name == other.name)
@@ -89,15 +86,16 @@ class VariableReference(ASTNode):
         return f"VariableReference({self.name})"
         
     def accept(self, visitor):
-        return visitor.visit_variable_reference(self)
+        return visitor.visit_variable(self)
 
     def print_content(self, indent=0):
         print(" " * indent + f"VariableReference: {self.name}")
 
 class VariableUpdated(ASTNode):
-    def __init__(self, var_name, expression):
-        self.name = var_name
+    def __init__(self, name, expression, line):
+        self.name = name
         self.value = expression
+        self.line = line
         
     def __eq__(self, other):
         return (isinstance(other, VariableUpdated) and
@@ -108,8 +106,8 @@ class VariableUpdated(ASTNode):
         return f"VariableUpdated({self.name}, {self.value})"
         
     def accept(self, visitor):
-        return visitor.visit_variable_updated(self)
-
+        return visitor.visit_variable(self)
+    
     def print_content(self, indent=0):
         print(" " * indent + f"VariableUpdated({self.name})")
         if self.value is not None:
@@ -118,8 +116,9 @@ class VariableUpdated(ASTNode):
             print(" " * (indent + 2) + "Value: None")
 
 class Print(ASTNode):
-    def __init__(self, expression):
+    def __init__(self, expression, line):
         self.expression = expression
+        self.line = line
         
     def __eq__(self, other):
         return isinstance(other, Print) and self.expression == other.expression
@@ -135,28 +134,60 @@ class Print(ASTNode):
         self.expression.print_content(indent + 2)
 
 class If(ASTNode):
-    def __init__(self, comparison, block):
+    def __init__(self, comparison, block, line, elifNodes=None, elseBlock=None):
         self.comparison = comparison
         self.block = block
+        self.elifNodes = elifNodes
+        self.elseBlock = elseBlock
+        self.line = line
     
     def __eq__(self, other):
-        return isinstance(other, If) and self.comparison == other.comparison and self.block == other.block
-
+        return (isinstance(other, If) and
+                self.comparison == other.comparison and
+                self.block == other.block and
+                self.elifNodes == other.elifNodes and
+                self.elseBlock == other.elseBlock)
+    
     def __repr__(self):
-        return f"If({self.comparison}, {self.block})"
+        return f"If({self.comparison}, {self.block}, {self.elifNodes}, {self.elseBlock})"
     
     def accept(self, visitor):
         return visitor.visit_if(self)
     
     def print_content(self, indent=0):
-        print(" " * indent + "If")
-        self.comparison.print_content(indent + 2)
-        self.block.print_content(indent + 2)
+            print(" " * indent + "If")
+            
+            if self.comparison:
+                self.comparison.print_content(indent + 2)
+            else:
+                print(" " * (indent + 2) + "None")
+            
+            if self.block:
+                self.block.print_content(indent + 2)
+            else:
+                print(" " * (indent + 2) + "None")
+            
+            if self.elifNodes:
+                for elif_comparison, elif_block in self.elifNodes:
+                    print(" " * indent + "Elif")
+                    if elif_comparison:
+                        elif_comparison.print_content(indent + 2)
+                    else:
+                        print(" " * (indent + 2) + "None")
+                    if elif_block:
+                        elif_block.print_content(indent + 2)
+                    else:
+                        print(" " * (indent + 2) + "None")
+            
+            if self.elseBlock is not None:
+                print(" " * indent + "Else")
+                self.elseBlock.print_content(indent + 2)      
 
 class While(ASTNode):
-    def __init__(self, comparison, block):
+    def __init__(self, comparison, block, line):
         self.comparison = comparison
         self.block = block
+        self.line = line
         
     def __eq__(self, other):
         return isinstance(other, While) and self.comparison == other.comparison and self.block == other.block
@@ -172,35 +203,10 @@ class While(ASTNode):
         self.comparison.print_content(indent + 2)
         self.block.print_content(indent + 2)
 
-class For(ASTNode):
-    def __init__(self, variable, comparison, increment, block):
-        self.variable = variable        # type: Variable
-        self.comparison = comparison    # type: Comparison
-        self.increment = increment
-        self.block = block
-        
-    def __eq__(self, other):
-        return (isinstance(other, For) and self.variable == other.variable and
-                self.comparison == other.comparison and self.increment == other.increment and self.block == other.block)
-
-    def __repr__(self):
-        return f"For({self.variable.name}={'None' if self.variable.value is None else self.variable.value};{self.comparison};{self.increment}, {self.block})"
-
-    def accept(self, visitor):
-        return visitor.visit_for(self)
-    
-    def print_content(self, indent=0):
-        print(" " * indent + "For")
-        print(" " * (indent + 2) + f"Variable: {self.variable.name}")
-        if self.variable.value is not None:
-            self.variable.value.print_content(indent + 2)
-        self.comparison.print_content(indent + 2)
-        print(" " * (indent + 2) + f"Increment: {self.increment}")
-        self.block.print_content(indent + 2)
-
 class Input(ASTNode):
-    def __init__(self, var_name):
+    def __init__(self, var_name,line):
         self.var_name = var_name
+        self.line = line
     
     def __eq__(self, other):
         return isinstance(other, Input) and self.var_name == other.var_name
@@ -214,33 +220,14 @@ class Input(ASTNode):
     def print_content(self, indent=0):
         print(" " * indent + "Input")
         print(" " * (indent + 2) + f"Variable: {self.var_name}")
-
-class Comparison(ASTNode):
-    def __init__(self, left, operator, right):
-        self.left = left
-        self.operator = operator
-        self.right = right
-    
-    def __eq__(self, other):
-        return isinstance(other, Comparison) and self.left == other.left and self.operator == other.operator and self.right == other.right
-
-    def __repr__(self):
-        return f"Comparison({self.left} {self.operator} {self.right})"
-    
-    def accept(self, visitor):
-        return visitor.visit_comparison(self)
-      
-    def print_content(self, indent=0):
-        print(" " * indent + "Comparison")
-        self.left.print_content(indent + 2)
-        print(" " * (indent + 2) + f"Operator: {self.operator}")
-        self.right.print_content(indent + 2)
-
+            
+# base class for all expressions
 class Expression(ASTNode):
-    def __init__(self, left, operator, right):
+    def __init__(self, left, operator, right, line):
         self.left = left
         self.operator = operator
         self.right = right
+        self.line = line
     
     def __eq__(self, other):
         return isinstance(other, Expression) and self.left == other.left and self.operator == other.operator and self.right == other.right
@@ -256,12 +243,11 @@ class Expression(ASTNode):
         self.left.print_content(indent + 2)
         print(" " * (indent + 2) + f"Operator: {self.operator}")
         self.right.print_content(indent + 2)
-        
-class BinaryOp(ASTNode):
-    def __init__(self, left, operator, right):
-        self.left = left
-        self.operator = operator
-        self.right = right
+
+# For + - * /
+class BinaryOp(Expression):
+    def __init__(self, left, operator, right, line):
+        super().__init__(left, operator, right, line)
 
     def __repr__(self):
         return f"BinaryOp({self.left}, {self.operator}, {self.right})"
@@ -276,94 +262,109 @@ class BinaryOp(ASTNode):
         print(" " * indent + f"BinaryOp (Operator: {self.operator})")
         self.left.print_content(indent + 2)
         self.right.print_content(indent + 2)
-
-class UnaryOp(ASTNode):
-    def __init__(self, operator, operand):
-        self.operator = operator
-        self.operand = operand
+       
+# for -5 / +5 and !
+class UnaryOp(Expression):
+    def __init__(self, operator, left, line):
+        super().__init__(left, operator, None, line)  # UnaryOp has no right operand
 
     def __repr__(self):
-        return f"Unary({self.operator}, {self.operand})"
+        return f"UnaryOp({self.operator}, {self.left})"
 
     def __eq__(self, other):
-        return (isinstance(other, Unary) and
+        return (isinstance(other, UnaryOp) and
                 self.operator == other.operator and
-                self.operand == other.operand)
+                self.left == other.left)
 
     def print_content(self, indent=0):
-        print(" " * indent + f"Unary (Operator: {self.operator})")
-        self.operand.print_content(indent + 2)
+        print(" " * indent + f"UnaryOp (Operator: {self.operator})")
+        self.left.print_content(indent + 2)
 
-class Primary(ASTNode):
-    def __init__(self, value):
-        self.value = value
+# for < > <= >= == !=
+class Comparison(Expression):
+    def __init__(self, left, operator, right, line):
+        super().__init__(left, operator, right, line)
     
-    def __eq__(self, other):
-        return isinstance(other, Primary) and self.value == other.value
-
     def __repr__(self):
-        return f"Primary({self.value})"
+        return f"Comparison({self.left} {self.operator} {self.right})"
     
     def accept(self, visitor):
-        return visitor.visit_primary(self)
+        return visitor.visit_comparison(self)
     
     def print_content(self, indent=0):
-        print(" " * indent + f"Primary: {self.value}")
+        print(" " * indent + "Comparison")
+        self.left.print_content(indent + 2)
+        print(" " * (indent + 2) + f"Operator: {self.operator}")
+        self.right.print_content(indent + 2)
 
-class Number(ASTNode):
-    def __init__(self, value):
-        self.value = value
-    
-    def __eq__(self, other):
-        return isinstance(other, Number) and self.value == other.value
+# for && ||
+class LogicalOp(Expression):
+    def __init__(self, left, operator, right, line):
+        super().__init__(left, operator, right, line)
 
     def __repr__(self):
-        return f"Number({self.value})"
+        return f"LogicalOp({self.left} {self.operator} {self.right})"
+
+    def __eq__(self, other):
+        return (isinstance(other, LogicalOp) and
+                self.left == other.left and
+                self.operator == other.operator and
+                self.right == other.right)
+
+    def print_content(self, indent=0):
+        print(" " * indent + f"LogicalOp (Operator: {self.operator})")
+        self.left.print_content(indent + 2)
+        self.right.print_content(indent + 2)
+        
+# Base class for all literals
+class Primary(ASTNode):
+    def __init__(self, value, line=None):
+        self.value = value
+        self.line = line
+
+    def __eq__(self, other):
+        return isinstance(other, Primary) and self.value == other.value and self.line == other.line
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}({self.value})"
     
+    def print_content(self, indent=0):
+        print(" " * indent + f"{self.__class__.__name__}: {self.value}")
+
+class Integer(Primary):
+    def __init__(self, value, line=None):
+        super().__init__(value, line)
+
     def accept(self, visitor):
         return visitor.visit_number(self)
     
-    def print_content(self, indent=0):
-        print(" " * indent + f"Number: {self.value}")
+class Float(Primary):
+    def __init__(self, value, line=None):
+        super().__init__(value, line)
 
-class Boolean(ASTNode):
-    def __init__(self, value):
-        self.value = value
-    
-    def __eq__(self, other):
-        return isinstance(other, Boolean) and self.value == other.value
+    def accept(self, visitor):
+        return visitor.visit_float(self)
 
-    def __repr__(self):
-        return f"Boolean({self.value})"
-    
+class Boolean(Primary):
+    def __init__(self, value, line=None):
+        super().__init__(value, line)
+
     def accept(self, visitor):
         return visitor.visit_boolean(self)
-    
-    def print_content(self, indent=0):
-        print(" " * indent + f"Boolean: {self.value}")
 
-class String(ASTNode):
-    def __init__(self, value):
-        self.value = value
-    
-    def __eq__(self, other):
-        return isinstance(other, String) and self.value == other.value
+class String(Primary):
+    def __init__(self, value, line=None):
+        super().__init__(value, line)
 
-    def __repr__(self):
-        return f"String({self.value})"
-    
     def accept(self, visitor):
         return visitor.visit_string(self)
-    
-    def print_content(self, indent=0):
-        print(" " * indent + f"String: {self.value}")
 
-class Null:
+class Null(Primary):
+    def __init__(self):
+        super().__init__(None)
+
     def __repr__(self):
         return "Null()"
-    
-    def __eq__(self, other):
-        return isinstance(other, Null)
 
     def print_content(self, indent=0):
         print(" " * indent + "Null")

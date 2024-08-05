@@ -1,11 +1,11 @@
 import sys
 """
-This module defines custom exceptions that can be raised by the compiler. I dont want user to know i use py :)
+This module defines all the exceptions that can be raised by the compiler.
 """
 
 error_occurred = False
 
-def report(message, type="Unknown", lineNumber=None, line=None):
+def report(message, type="Unknown", lineNumber=None):
     """
     Prints an error message to standard output without exiting the program. 
     Marks that code is erroneous so that further execution (after parser) can be stopped.
@@ -21,9 +21,7 @@ def report(message, type="Unknown", lineNumber=None, line=None):
     error_occurred = True
     error_message = f"{type} Error: {message}"
     if lineNumber is not None:
-        error_message += f" at line {lineNumber}:"
-    if line is not None:
-        error_message += f"\n{line}"
+        error_message += f" at line {lineNumber}"
     print(error_message)  # Print the error message instead of exiting
 
 def has_error_occurred():
@@ -56,12 +54,11 @@ class SyntaxError(CompilerError):
 
 class SemanticError(CompilerError):
     """Exception raised for semantic errors."""
-    def __init__(self, message, context):
+    def __init__(self, message):
         super().__init__(message)
-        self.context = context
 
     def __str__(self):
-        return f"SemanticError in context '{self.context}': {self.message}"
+        return f"{self.message}"
 
 
 class LexerError(CompilerError):
@@ -87,11 +84,10 @@ class TypeError(CompilerError):
 
 class UndefinedVariableError(CompilerError):
     """Exception raised when a variable is used before it's defined."""
-    def __init__(self, message, variable_name):
+    def __init__(self, message):
         super().__init__(message)
-        self.variable_name = variable_name
 
     def __str__(self):
-        return f"UndefinedVariableError for variable '{self.variable_name}': {self.message}"
+        return f"UndefinedVariableError: {self.message}"
 
 

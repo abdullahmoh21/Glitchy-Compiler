@@ -2,18 +2,6 @@ from .lexer import *
 import sys
 import os
 
-# global function for errors
-def abort(message,type="Unknown", lineNumber=None,line=None, emitter = None):
-    error_message = f"{type}Error: {message}"
-    if lineNumber is not None:
-        error_message += f" at line {lineNumber}:"
-    if line is not None:
-        error_message += f"\n{line}"
-    if emitter is not None:
-        emitter.clearOutput()
-    print(error_message,file=sys.stderr)
-    sys.exit(1)
-
 #  eventually this will be the main function, that includes bash scripting to exec out.c
 def main():
     print("Glitchy Lexer")
