@@ -121,7 +121,7 @@ class TestParser(unittest.TestCase):
         expected_ast = Program([
             VariableDeclaration("x", Integer(0), 2),
             While(
-                Comparison(VariableReference("x", 3), "<", Integer(10, 3), 3),
+                Comparison(VariableReference("x", Integer(3)), "<", Integer(10, 3), 3),
                 Block([
                     VariableUpdated("x", BinaryOp(
                         VariableReference("x", 4), "+", Integer(1, 4), 4
@@ -327,9 +327,9 @@ class TestParser(unittest.TestCase):
         expected_ast = Program([
             VariableDeclaration(
                 name='result',
-                expression=BinaryOp(
+                expression=LogicalOp(
                     operator='&&',
-                    left=BinaryOp(
+                    left=Comparison(
                         operator='==',
                         left=BinaryOp(
                             operator='/',
@@ -337,30 +337,30 @@ class TestParser(unittest.TestCase):
                                 operator='*',
                                 left=BinaryOp(
                                     operator='+',
-                                    left=VariableReference(name='x'),
-                                    right=Number(value=1),
+                                    left=VariableReference(name='x',line=1),
+                                    right=Integer(value=1),
                                     line=1  
                                 ),
                                 right=BinaryOp(
                                     operator='-',
-                                    left=VariableReference(name='y'),
-                                    right=Number(value=2),
+                                    left=VariableReference(name='y',line=1),
+                                    right=Integer(value=2),
                                     line=1  
                                 ),
                                 line=1  
                             ),
-                            right=Number(value=3),
+                            right=Integer(value=3),
                             line=1  
                         ),
-                        right=VariableReference(name='z'),
+                        right=VariableReference(name='z',line=1),
                         line=1  
                     ),
                     right=UnaryOp(
                         operator='!',
-                        operand=BinaryOp(
+                        left=LogicalOp(
                             operator='||',
-                            left=VariableReference(name='a'),
-                            right=VariableReference(name='b'),
+                            left=VariableReference(name='a',line=1),
+                            right=VariableReference(name='b',line=1),
                             line=1  
                         ),
                         line=1  
@@ -369,7 +369,7 @@ class TestParser(unittest.TestCase):
                 ),
                 line=1  
             )
-        ], line=1)  
+        ])  
         self.run_test(source_code, expected_ast)
         
     def test_multiple_levels_of_operations(self):
@@ -586,6 +586,7 @@ class TestParser(unittest.TestCase):
         
         print("\nExpected AST:")
         expected_ast.print_content()
+        print("\n")
         
         if not TestParser.compare_ast(generated_ast, expected_ast):
             self.fail("\n[ERROR] Generated AST does not match expected AST\n")

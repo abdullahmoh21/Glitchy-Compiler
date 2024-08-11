@@ -4,14 +4,13 @@ from Analyzer import SemanticAnalyzer
 
 def main():
     source_code = """
-    set x = 5
-    set y = 10
-    set t = "hello chutiya"
-    if (x > 0 ) {
-        set z = x + y
-        print("x is positive")
-    }
-    z = 30
+        function add(x,y){
+            return x+y
+        }
+        
+        add(x,y)
+    
+    
     """
 
     # Tokenize the source code
@@ -22,13 +21,10 @@ def main():
     ast.print_content()
     print("\n\n")
     
-    try:
-        # Run semantic analysis
-        analyzer = SemanticAnalyzer(ast)
-        analyzer.analyze()
-    except Exception as e:
-        # analyzer will format the error message. Just print it
-        print(f"{e}")
+    # Run semantic analysis
+    analyzer = SemanticAnalyzer(ast)
+    analyzer.analyze()
+    print("Analyzing completed")
 
 if __name__ == "__main__":
     main()

@@ -29,18 +29,22 @@ class TokenType(Enum):
     NEWLINE = 0
     INTEGER = 1
     BOOLEAN = 2
-    VAR_NAME = 3
+    IDENTIFIER = 3
     STRING = 4
     NULL = 5
     FLOAT = 6
-    # Braces and Parentheses.
-    LBRACE = 7     # {
-    RBRACE = 8     # }
-    LPAREN = 9     # (
+    # Punctuation.
+    LBRACE = 7      # {
+    RBRACE = 8      # }
+    LPAREN = 9      # (
     RPAREN = 10     # )
     SEMICOLON = 11  # ;
+    COMMA = 12      # ,
+    DOT = 13        # .
     # -------------------------------- #
     # Keywords.
+    WHILE = 101
+    FUNCTION = 102
     PRINT = 103  
     INPUT = 104
     SET = 105    
@@ -48,7 +52,7 @@ class TokenType(Enum):
     ELSE = 107
     ELIF = 108
     FOR = 109
-    WHILE = 101
+    RETURN = 110
     # -------------------------------- #
     # Operators.
     EQ = 301        # =

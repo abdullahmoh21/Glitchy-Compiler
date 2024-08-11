@@ -29,8 +29,8 @@ class ASTVisitor:
     def visit_comparison(self, comparison):
         raise NotImplementedError("visit_comparison must be implemented")
     
-    def visit_expression(self, expression):
-        raise NotImplementedError("visit_expression must be implemented")
+    def visit_logical_op(self, logical_op):
+        raise NotImplementedError("visit_logical_op must be implemented")
     
     def visit_binary_op(self, binary_op):
         raise NotImplementedError("visit_binary_op must be implemented")

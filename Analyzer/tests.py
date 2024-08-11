@@ -1,158 +1,187 @@
 import unittest
-import logging
-from Analyzer import SemanticAnalyzer
+from Error import *
 from Ast import *
-from Error.error import *
+from SemanticAnalyzer import SemanticAnalyzer
 
-# Set up logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
-
-class TestSemanticAnalyzer(unittest.TestCase):
-
-    def test_variable_declaration(self):
+class SemanticAnalyzerTests(unittest.TestCase):
+    
+    def test_analyze_no_errors(self):
+        # Create a valid AST
         ast = Program([
-            VariableDeclaration('x', Number(5), 1)
+            VariableDeclaration('x', 'integer', Integer(5)),
+            VariableDeclaration('y', 'integer', Integer(10)),
+            VariableUpdated('x', 'integer', Integer(7)),
+            VariableReference('x'),
+            Print(VariableReference('y'))
         ])
+        
+        # Create a semantic analyzer
         analyzer = SemanticAnalyzer(ast)
+        
+        # Analyze the AST
         symbol_table = analyzer.analyze()
-        print(f"is declared: {symbol_table.is_declared('x')}")
-        print(f"symbols: {symbol_table.declarations}")
-        self.assertIn('x', symbol_table.declarations)
-
-    def test_variable_redeclaration(self):
+        
+        # Assert that no errors occurred
+        self.assertFalse(error.has_error_occurred())
+        
+        # Assert that the symbol table is not None
+        self.assertIsNotNone(symbol_table)
+        
+        # Assert that the symbol table contains the expected variables
+        self.assertIn('x', symbol_table.symbols)
+        self.assertIn('y', symbol_table.symbols)
+        
+        # Assert that the variables have the expected types
+        self.assertEqual(symbol_table.symbols['x'], 'integer')
+        self.assertEqual(symbol_table.symbols['y'], 'integer')
+        
+        # Assert that the variables have been declared and used
+        self.assertTrue(symbol_table.is_declared('x'))
+        self.assertTrue(symbol_table.is_declared('y'))
+        self.assertTrue(symbol_table.is_used('x'))
+        self.assertTrue(symbol_table.is_used('y'))
+        
+    def test_analyze_with_errors(self):
+        # Create an AST with errors
         ast = Program([
-            VariableDeclaration('x', Number(5), 1),
-            VariableDeclaration('x', Number(10), 2)
+            VariableDeclaration('x', 'integer', Integer(5)),
+            VariableDeclaration('x', 'integer', Integer(10)),  # Duplicate variable declaration
+            VariableUpdated('y', 'integer', Integer(7)),  # Variable not declared
+            VariableReference('z')  # Variable not declared
         ])
+        
+        # Create a semantic analyzer
         analyzer = SemanticAnalyzer(ast)
-        with self.assertRaises(UndefinedVariableError):
-            analyzer.analyze()
-
-    def test_variable_update(self):
-        ast = Program([
-            VariableDeclaration('x', Number(5), 1),
-            VariableUpdated('x', Number(10), 2)
-        ])
-        analyzer = SemanticAnalyzer(ast)
+        
+        # Analyze the AST
         symbol_table = analyzer.analyze()
-        self.assertEqual(symbol_table.lookup('x'), 'number')
+        
+        # Assert that errors occurred
+        self.assertTrue(error.has_error_occurred())
+        
+        # Assert that the symbol table is None
+        self.assertIsNone(symbol_table)
+        
+        # Assert that the expected errors were reported
+        self.assertIn("Variable 'x' (Line number: 3) is already defined.", error.get_errors())
+        self.assertIn("Variable 'y' (Line number: 4) has not been defined.", error.get_errors())
+        self.assertIn("Variable 'z' (Line number: 5) is used before it is defined.", error.get_errors())
 
-        # Test update without declaration
+    def test_analyze_float_integer_comparison(self):
+        # Create a valid AST with float and integer comparison
         ast = Program([
-            VariableUpdated('y', Number(10), 1)
+            VariableDeclaration('a', 'float', Float(2.5)),
+            VariableDeclaration('b', 'integer', Integer(2)),
+            VariableReference('a'),
+            VariableReference('b'),
+            Print(Comparison(VariableReference('b'), '<', VariableReference('a')))
         ])
+        
+        # Create a semantic analyzer
         analyzer = SemanticAnalyzer(ast)
-        with self.assertRaises(UndefinedVariableError):
-            analyzer.analyze()
+        
+        # Analyze the AST
+        symbol_table = analyzer.analyze()
+        
+        # Assert that no errors occurred
+        self.assertFalse(error.has_error_occurred())
+        
+        # Assert that the symbol table is not None
+        self.assertIsNotNone(symbol_table)
+        
+        # Assert that the symbol table contains the expected variables
+        self.assertIn('a', symbol_table.symbols)
+        self.assertIn('b', symbol_table.symbols)
+        
+        # Assert that the variables have the expected types
+        self.assertEqual(symbol_table.symbols['a'], 'float')
+        self.assertEqual(symbol_table.symbols['b'], 'integer')
+        
+        # Assert that the variables have been declared and used
+        self.assertTrue(symbol_table.is_declared('a'))
+        self.assertTrue(symbol_table.is_declared('b'))
+        self.assertTrue(symbol_table.is_used('a'))
+        self.assertTrue(symbol_table.is_used('b'))
+        
+    def test_analyze_invalid_comparison(self):
+        # Create an AST with invalid comparison
+        ast = Program([
+            VariableDeclaration('a', 'string', String("hello")),
+            VariableDeclaration('b', 'integer', Integer(2)),
+            Print(Comparison(VariableReference('a'), '<', VariableReference('b')))
+        ])
+        
+        # Create a semantic analyzer
+        analyzer = SemanticAnalyzer(ast)
+        
+        # Analyze the AST
+        symbol_table = analyzer.analyze()
+        
+        # Assert that errors occurred
+        self.assertTrue(error.has_error_occurred())
+        
+        # Assert that the symbol table is None
+        self.assertIsNone(symbol_table)
+        
+        # Assert that the expected error was reported
+        self.assertIn("Invalid types for comparison: string < integer", error.get_errors())
 
-    def test_variable_reference(self):
+    def test_analyze_logical_operation(self):
+        # Create a valid AST with logical operation
         ast = Program([
-            VariableReference('x', 1)
+            VariableDeclaration('a', 'boolean', Boolean(True)),
+            VariableDeclaration('b', 'boolean', Boolean(False)),
+            Print(LogicalOp(VariableReference('a'), '&&', VariableReference('b')))
         ])
+        
+        # Create a semantic analyzer
         analyzer = SemanticAnalyzer(ast)
-        with self.assertRaises(error.UndefinedVariableError):
-            analyzer.analyze()
-
-        # Test valid reference
+        
+        # Analyze the AST
+        symbol_table = analyzer.analyze()
+        
+        # Assert that no errors occurred
+        self.assertFalse(error.has_error_occurred())
+        
+        # Assert that the symbol table is not None
+        self.assertIsNotNone(symbol_table)
+        
+        # Assert that the symbol table contains the expected variables
+        self.assertIn('a', symbol_table.symbols)
+        self.assertIn('b', symbol_table.symbols)
+        
+        # Assert that the variables have the expected types
+        self.assertEqual(symbol_table.symbols['a'], 'boolean')
+        self.assertEqual(symbol_table.symbols['b'], 'boolean')
+        
+        # Assert that the variables have been declared and used
+        self.assertTrue(symbol_table.is_declared('a'))
+        self.assertTrue(symbol_table.is_declared('b'))
+        self.assertTrue(symbol_table.is_used('a'))
+        self.assertTrue(symbol_table.is_used('b'))
+        
+    def test_analyze_invalid_logical_operation(self):
+        # Create an AST with invalid logical operation
         ast = Program([
-            VariableDeclaration('x', Number(5), 1),
-            VariableReference('x', 2)
+            VariableDeclaration('a', 'integer', Integer(1)),
+            VariableDeclaration('b', 'boolean', Boolean(False)),
+            Print(LogicalOp(VariableReference('a'), '&&', VariableReference('b')))
         ])
+        
+        # Create a semantic analyzer
         analyzer = SemanticAnalyzer(ast)
-        analyzer.analyze()
-
-    def test_type_compatibility(self):
-        # Arithmetic operation
-        ast = Program([
-            Expression(BinaryOp(Number(5), '+', Number(10),1), 1)
-        ])
-        analyzer = SemanticAnalyzer(ast)
-        analyzer.analyze()
-
-        # Type mismatch in arithmetic
-        ast = Program([
-                BinaryOp(Number(5), '+', String("test"),1)
-        ])
-        analyzer = SemanticAnalyzer(ast)
-        with self.assertRaises(Error.TypeError):
-            analyzer.analyze()
-
-        # Comparison operation
-        ast = Program([
-            Comparison(Number(5), '==', Number(10), 1)
-        ])
-        analyzer = SemanticAnalyzer(ast)
-        analyzer.analyze()
-
-        # Type mismatch in comparison
-        ast = Program([
-            Comparison(Number(5), '==', String("test"), 1)
-        ])
-        analyzer = SemanticAnalyzer(ast)
-        with self.assertRaises(Error.TypeError):
-            analyzer.analyze()
-
-        # Boolean operation
-        ast = Program([
-            BinaryOp(Boolean(True), '&&', Boolean(False),1)
-        ])
-        analyzer = SemanticAnalyzer(ast)
-        analyzer.analyze()
-
-        # Type mismatch in boolean operation
-        ast = Program([
-            Expression(BinaryOp(Boolean(True), '&&', Number(5),1), 1)
-        ])
-        analyzer = SemanticAnalyzer(ast)
-        with self.assertRaises(Error.TypeError):
-            analyzer.analyze()
-
-    def test_scope_handling(self):
-        ast = Program([
-            Block([
-                VariableDeclaration('x', Number(5), 1)
-            ]),
-            VariableUpdated('x', Number(10), 2)
-        ])
-        analyzer = SemanticAnalyzer(ast)
-        analyzer.analyze()
-
-        # Test variable out of scope
-        ast = Program([
-            Block([
-                VariableDeclaration('x', Number(5), 1)
-            ]),
-            Block([
-                VariableUpdated('x', Number(10), 2)
-            ])
-        ])
-        analyzer = SemanticAnalyzer(ast)
-        with self.assertRaises(Error.UndefinedVariableError):
-            analyzer.analyze()
-
-    def test_print_input(self):
-        # Test print statement
-        ast = Program([
-            Print(Expression(Number(5)), 1)
-        ])
-        analyzer = SemanticAnalyzer(ast)
-        analyzer.analyze()
-
-        # Test input statement
-        ast = Program([
-            Input('x', 1)
-        ])
-        analyzer = SemanticAnalyzer(ast)
-        with self.assertRaises(Error.UndefinedVariableError):
-            analyzer.analyze()
-
-        # Test input with declaration
-        ast = Program([
-            VariableDeclaration('x', Number(5), 1),
-            Input('x', 2)
-        ])
-        analyzer = SemanticAnalyzer(ast)
-        analyzer.analyze()
+        
+        # Analyze the AST
+        symbol_table = analyzer.analyze()
+        
+        # Assert that errors occurred
+        self.assertTrue(error.has_error_occurred())
+        
+        # Assert that the symbol table is None
+        self.assertIsNone(symbol_table)
+        
+        # Assert that the expected error was reported
+        self.assertIn("Type mismatch in logical operation: integer && boolean", error.get_errors())
 
 if __name__ == '__main__':
     unittest.main()

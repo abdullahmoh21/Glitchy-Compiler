@@ -1,2 +1,2 @@
 from .lexer import *
-from .tokenClass import *
+from .TokenTable import *

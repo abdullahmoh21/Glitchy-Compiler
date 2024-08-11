@@ -2,8 +2,5 @@
             set sum = x + y
             return sum
         }
-        return x
         
-        set x = input()
-        
-        set x = add(10,2)
+        set x = add()

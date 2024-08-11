@@ -1,6 +1,6 @@
 import sys
-from .tokenClass import Token, TokenType
-from Error.error import report
+from .TokenTable import Token, TokenType
+from Error import report
 
 class Lexer:
     def __init__(self, source): 
@@ -203,7 +203,7 @@ class Lexer:
                 # Check if the token is a keyword
                 keyword = Token.checkIfKeyword(tokText)
                 if keyword is None:
-                    token = Token(TokenType.VAR_NAME, tokText)
+                    token = Token(TokenType.IDENTIFIER, tokText)
                 else:
                     token = Token(keyword, tokText)
                     
@@ -219,6 +219,10 @@ class Lexer:
             token = Token(TokenType.RPAREN, self.currentChar)
         elif self.currentChar == ';':
             token = Token(TokenType.SEMICOLON, self.currentChar)
+        elif self.currentChar == '.':
+            token = Token(TokenType.DOT, self.currentChar)
+        elif self.currentChar == ',':
+            token = Token(TokenType.COMMA, self.currentChar)
             
         elif self.currentChar == '\n':
             token = Token(TokenType.NEWLINE, '\n')
