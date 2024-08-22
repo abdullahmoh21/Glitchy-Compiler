@@ -41,6 +41,8 @@ class TokenType(Enum):
     SEMICOLON = 11  # ;
     COMMA = 12      # ,
     DOT = 13        # .
+    COLON = 14      # :
+    QMARK = 15      # ?
     # -------------------------------- #
     # Keywords.
     WHILE = 101
@@ -53,6 +55,7 @@ class TokenType(Enum):
     ELIF = 108
     FOR = 109
     RETURN = 110
+    GLITCH = 111
     # -------------------------------- #
     # Operators.
     EQ = 301        # =
@@ -60,14 +63,18 @@ class TokenType(Enum):
     MINUS = 303
     ASTERISK = 304
     SLASH = 305
-    EQEQ = 306      # ==
-    NOTEQ = 307     # !=
-    LT = 308        # <
-    LTEQ = 309      # <=
-    GT = 310        # >
-    GTEQ = 311      # >=
-    INCREMENT = 312   # ++ 
-    DECREMENT = 313   # --
+    MODUlO = 306        # %
+    POW = 307           # ^
+    EQEQ = 308          # ==
+    NOTEQ = 309         # !=
+    LT = 310            # <
+    LTEQ = 311          # <=
+    GT = 312            # >
+    GTEQ = 313          # >=
+    INCREMENT = 314     # ++ 
+    DECREMENT = 315     # --
+    PLUS_EQUAL = 316    # +=
+    MINUS_EQUAL = 317   # -=
     # -------------------------------- #
     # Logical operators.
     AND = 401       # &&

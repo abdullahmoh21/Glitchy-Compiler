@@ -46,18 +46,18 @@ class Block(ASTNode):
                 stmt.print_content(indent + 2)
             else:
                 print(" " * (indent+2) + "null")
-                 
+        
 class VariableDeclaration(ASTNode):
-    def __init__(self, name, expression, line=None):
+    def __init__(self, name, value, line=None, annotation=None):
         self.name = name
-        self.value = expression
+        self.value = value
+        self.annotation = annotation
         self.line = line
-        self.type = self.getType()
     
-    def getType(self):
+    def evaluateType(self):
         if self.value is not None:
-            return self.value.getType()
-        return "dynamic"
+            return self.value.evaluateType()
+        return "invalid"
     
     def __eq__(self, other):
         return (isinstance(other, VariableDeclaration) and
@@ -71,27 +71,25 @@ class VariableDeclaration(ASTNode):
             return visitor.visit_variable(self)
 
     def print_content(self, indent=0):
-        print(" " * indent + f"VariableDeclaration (type: {self.type})")
-        print(" " * (indent + 2) + f"Name: {self.name}")
+        print(" " * indent + f"VariableDeclaration: {self.name}")
+        if self.annotation is not None:
+            print(" " * (indent + 2) + f"Type Annotation: {self.annotation}")
         if self.value is not None:
             self.value.print_content(indent + 2)
         else:
             print(" " * (indent + 2) + "Value: None")
 
 class VariableReference(ASTNode):
-    def __init__(self, name, value = None, line = None):
+    def __init__(self, name, line = None):
         self.name = name  
-        self.value = value  
         self.line = line
-        self.type = self.getType()
+        self.type = None
         
-    def getType(self):
-        if self.value is not None:
-            if isinstance(self.value, MethodCall):
-                return "method_call"
-            return self.value.getType()
-        return "dynamic"
-    
+    def evaluateType(self):
+        if self.type is not None:
+            return self.type
+        return 'invalid'
+        
     def __eq__(self, other):
         return (isinstance(other, VariableReference) and self.name == other.name)
         
@@ -102,22 +100,18 @@ class VariableReference(ASTNode):
         return visitor.visit_variable(self)
 
     def print_content(self, indent=0):
-        print(" " * indent + f"VariableReference: (type: {self.type})")
-        print(" " * (indent + 2) + f"Name: {self.name}")
+        print(" " * indent + f"VariableReference: {self.name}")
 
 class VariableUpdated(ASTNode):
-    def __init__(self, name, expression, line=None):
+    def __init__(self, name, value, line=None):
         self.name = name
-        self.value = expression
+        self.value = value
         self.line = line
-        self.type = self.getType()
     
-    def getType(self):
+    def evaluateType(self):
         if self.value is not None:
-            if isinstance(self.value, MethodCall): 
-                return "method_call"
-            return self.value.getType()
-        return "Variable Updated with None"
+            return self.value.evaluateType()
+        return "invalid"
     
     def __eq__(self, other):
         return (isinstance(other, VariableUpdated) and
@@ -131,42 +125,21 @@ class VariableUpdated(ASTNode):
         return visitor.visit_variable(self)
     
     def print_content(self, indent=0):
-        print(" " * indent + f"VariableUpdated(type: {self.type})")
-        print(" " * (indent + 2) + f"Name: {self.name}")
+        print(" " * indent + f"VariableUpdated: {self.name} ")
         if self.value is not None:
             self.value.print_content(indent + 2)
         else:
             print(" " * (indent + 2) + "Value: None")
 
 class FunctionDeclaration(ASTNode):
-    def __init__(self, name, parameters, block, line=None):
+    def __init__(self, name, return_type, parameters, block, line=None):
         self.name = name
+        self.return_type = return_type
         self.parameters = parameters
-        self.arity = len(parameters)
         self.block = block
-        self.return_type = self.evaluate_return_type()
+        self.arity = len(parameters)
         self.line = line
     
-    # We want to limit boxing, so we check if only one type is being returned
-    def evaluate_return_type(self):
-        return_types = set()
-
-        def collect_return_types(block):
-            for statement in block.statements:
-                if isinstance(statement, Return):
-                    return_types.add(statement.getType())
-                elif isinstance(statement, Block):
-                    collect_return_types(statement)
-
-        collect_return_types(self.block)
-
-        if len(return_types) == 0:
-            return "null"
-        elif len(return_types) == 1:
-            return return_types.pop()
-        else:
-            return "dynamic"
-        
     def __eq__(self, other):
         return (isinstance(other, FunctionDeclaration) and
                 self.name == other.name and
@@ -180,18 +153,20 @@ class FunctionDeclaration(ASTNode):
         return visitor.visit_function_declaration(self)
     
     def print_content(self, indent=0):
-        print(" " * indent + f"FunctionDeclaration: {self.name} (type: {self.return_type})")
+        print(" " * indent + f"FunctionDeclaration: {self.name} (return_type: {self.return_type})")
         print(" " * (indent + 2) + f"Parameters: ({self.parameters})")
         self.block.print_content(indent + 2)
 
 class Return(ASTNode):
-    def __init__(self, expression):
+    def __init__(self, expression, line = None):
         self.value = expression
-        self.type = self.getType()
+        self.line = line
+     
+    def evaluateType(self):
+        if self.value is not None:
+            return self.value.evaluateType()
+        return 'invalid'
     
-    def getType(self):
-        return self.value.type
-              
     def __repr__(self):
         return "return"
 
@@ -202,17 +177,40 @@ class Return(ASTNode):
         return visitor.visit_return(self)
     
     def print_content(self, indent=0):
-        print(" " * indent + f"Return: {self.value} (type: {self.type})")
+        print(" " * indent + f"Return: {self.value}")
     
+class Parameter(ASTNode):
+    def __init__(self, name, type):
+        self.name = name
+        self.type = type
+    
+    def evaluateType(self):
+        return self.type
+    
+    def __repr__(self):
+        return f"Parameter: {self.name} "
+
+    def __eq__(self, other):
+        return isinstance(other, Parameter) and self.type == other.type
+    
+    def accept(self, visitor):
+        return visitor.visit_parameter(self)
+    
+    def print_content(self, indent=0):
+        print(" " * indent + f"Parameter: {self.name} (type: {self.type})")
+
 class FunctionCall(ASTNode):
     def __init__(self, name, arguments, line=None):
         self.name = name
         self.arguments = arguments
         self.arity = len(arguments)
         self.line = line
+        self.type = None     # set in analyzer
     
-    def getType(self):
-        return "functionCall"
+    def evaluateType(self):
+        if self.type is not None:
+            return self.type
+        return 'invalid'
     
     def __eq__(self, other):
         return (isinstance(other, FunctionCall) and
@@ -232,6 +230,30 @@ class FunctionCall(ASTNode):
                 arg.print_content(indent + 2)
         else:
             print(" " * (indent + 2) + "Arguments: None")
+
+# TODO: implement named and default args
+class Argument(ASTNode):
+    def __init__(self, value, name = None):
+        self.name = name
+        self.value = value
+        self.type = None
+    
+    def evaluateType(self):
+        if self.type is not None:
+            return self.type
+        return 'invalid'
+    
+    def __repr__(self):
+        return f"Argument: {self.value} "
+
+    def __eq__(self, other):
+        return isinstance(other, Argument) and self.type == other.type
+    
+    def accept(self, visitor):
+        return visitor.visit_argument(self)
+    
+    def print_content(self, indent=0):
+        print(" " * indent + f"Argument: {self.name} (type: {self.type})")
 
 class MethodCall(ASTNode):
     def __init__(self, varRef, name, arguments, line=None):
@@ -261,25 +283,25 @@ class MethodCall(ASTNode):
             print(" " * (indent + 2) + "Arguments: None")
 
 class Print(ASTNode):
-    def __init__(self, expression, line=None):
-        self.expression = expression
+    def __init__(self, value, line=None):
+        self.value = value
         self.line = line
         
     def __eq__(self, other):
-        return isinstance(other, Print) and self.expression == other.expression
+        return isinstance(other, Print) and self.value == other.value
 
     def __repr__(self):
-        return f"Print({self.expression})"
+        return f"Print({self.value})"
     
     def accept(self, visitor):
         return visitor.visit_print(self)
     
     def print_content(self, indent=0):
         print(" " * indent + "Print")
-        self.expression.print_content(indent + 2)
+        self.value.print_content(indent + 2)
 
 class If(ASTNode):
-    def __init__(self, comparison, block, line=None, elifNodes=None, elseBlock=None):
+    def __init__(self, comparison, block, line=None, elifNodes=[], elseBlock=None):
         self.comparison = comparison
         self.block = block
         self.elifNodes = elifNodes
@@ -368,12 +390,11 @@ class Input(ASTNode):
             
 # ------------------------- Expressions ------------------------- #
 class Expression(ASTNode):
-    def __init__(self, left, operator, right, nodeType, line=None):
+    def __init__(self, left, operator, right, line=None):
         self.left = left
         self.operator = operator
         self.right = right
         self.line = line
-        self.type = nodeType
     
     def __eq__(self, other):
         raise NotImplementedError("Subclasses should implement this!")
@@ -396,27 +417,27 @@ class BinaryOp(Expression):
         self.left = left
         self.operator = operator
         self.right = right
-        nodeType = self.getType()
-        super().__init__(left, operator, right, nodeType, line)
+        self._cached_type = None
+        super().__init__(left, operator, right, line)
 
-    def getType(self):
-        left_type = self.left.getType()
-        right_type = self.right.getType()
-
+    def evaluateType(self):
+        if self._cached_type is not None:
+            return self._cached_type
+        
+        left_type = self.left.evaluateType()
+        right_type = self.right.evaluateType()
         numeric_types = ['integer', 'float']
     
         if self.operator in ['+', '-', '*', '/']:
             if left_type in numeric_types and right_type in numeric_types:
                 # If one is float, the result is float
                 if left_type == 'float' or right_type == 'float':
-                    return 'float'
-                return 'integer'
+                    self._cached_type = 'float'
+                self._cached_type = 'integer'
             elif self.operator == '+' and left_type == 'string' and right_type == 'string':
-                return 'string'
-            else:
-                return "dynamic"
+                self._cached_type = 'string'
 
-        return "invalid"
+        return self._cached_type or "invalid"
 
     def accept(self, visitor):
         return visitor.visit_binary_op(self)
@@ -431,7 +452,7 @@ class BinaryOp(Expression):
                 self.right == other.right)
 
     def print_content(self, indent=0):
-        print(" " * indent + f"BinaryOp (Operator: {self.operator}, type: {self.type})")
+        print(" " * indent + f"BinaryOp (Operator: {self.operator})")
         self.left.print_content(indent + 2)
         self.right.print_content(indent + 2)
        
@@ -440,20 +461,24 @@ class UnaryOp(Expression):
     def __init__(self, operator, left, line=None):
         self.operator = operator
         self.left = left
-        nodeType = self.getType()
-        super().__init__(left, operator, None, line, nodeType)  # UnaryOp has no right operand
+        self._cached_type = None
+        super().__init__(left, operator, None, line)  # UnaryOp has no right operand
 
-    def getType(self):
-        left_type = self.left.getType()
+    def evaluateType(self):
+        if self._cached_type is not None:
+            return self._cached_type
+        
+        left_type = self.left.evaluateType()
         if self.operator == '!':
             if left_type != 'boolean':
-                return "dynamic"
-            return 'boolean'
+                return "invalid"
+            self._cached_type = 'boolean'
         elif self.operator == '-' or self.operator == '+':
             if left_type != 'integer' and left_type != 'float':
-                return "dynamic"
-            return left_type
-        return "invalid"
+                return "invalid"
+            self._cached_type = left_type
+            
+        return self._cached_type or "invalid"
     
     def accept(self, visitor):
         return visitor.visit_unary_op(self)
@@ -476,15 +501,19 @@ class Comparison(Expression):
         self.left = left
         self.operator = operator
         self.right = right
-        nodeType = self.getType()
-        super().__init__(left, operator, right, line, nodeType)
+        self._cached_type = None  
+        super().__init__(left, operator, right, line)
     
-    def getType(self):
-        left_type = self.left.getType()
-        right_type = self.right.getType()
+    def evaluateType(self):
+        if self._cached_type is not None:
+            return self._cached_type 
+        
+        left_type = self.left.evaluateType()
+        right_type = self.right.evaluateType()
         if left_type not in ['integer', 'float'] or right_type not in ['integer', 'float']:
-            return "dynamic"
-        return 'boolean'
+            return "invalid"
+        self._cached_type = 'boolean'
+        return self._cached_type
     
     def accept(self, visitor):
         return visitor.visit_comparison(self)
@@ -499,7 +528,7 @@ class Comparison(Expression):
                 self.right == other.right)
     
     def print_content(self, indent=0):
-        print(" " * indent + f"Comparison (Operator: {self.operator}, type: {self.type})")
+        print(" " * indent + f"Comparison (Operator: {self.operator})")
         self.left.print_content(indent + 2)
         self.right.print_content(indent + 2)
 
@@ -509,15 +538,20 @@ class LogicalOp(Expression):
         self.left = left
         self.operator = operator
         self.right = right
-        nodeType = self.getType()
-        super().__init__(left, operator, right, line, nodeType)
+        self._cached_type = None
+        super().__init__(left, operator, right, line)
 
-    def getType(self):
-        left_type = self.left.getType()
-        right_type = self.right.getType()
+    def evaluateType(self):
+        if self._cached_type is not None:
+            return self._cached_type 
+        
+        left_type = self.left.evaluateType()
+        right_type = self.right.evaluateType()
         if left_type != 'boolean' or right_type != 'boolean':
-            return "dynamic"
-        return 'boolean'
+            return "invalid"
+        
+        self._cached_type = 'boolean'
+        return self._cached_type
     
     def accept(self, visitor):
         return visitor.visit_logical_op(self)
@@ -532,16 +566,43 @@ class LogicalOp(Expression):
                 self.right == other.right)
     
     def print_content(self, indent=0):
-        print(" " * indent + f"LogicalOp (Operator: {self.operator}, type: {self.type})")
+        print(" " * indent + f"LogicalOp (Operator: {self.operator})")
         self.left.print_content(indent + 2)
         self.right.print_content(indent + 2)
         
+class TernaryOp(ASTNode):
+    def __init__(self, condition, true_expr, false_expr, line= None):
+        self.condition = condition
+        self.true_expr = true_expr
+        self.false_expr = false_expr
+        self.line = line
+
+    def evaluateType(self):
+        pass
+    
+    def accept(self, visitor):
+        return visitor.visit_ternary_op(self)
+    
+    def __repr__(self):
+        return f"TernaryOp({self.condition}) ? {self.true_expr} : {self.false_expr})"
+
+    def __eq__(self, other):
+        return (isinstance(other, TernaryOp) and
+                self.condition == other.condition and
+                self.true_expr == other.true_expr and
+                self.false_expr == other.false_expr)
+    
+    def print_content(self, indent=0):
+        print(" " * indent + f"TernaryOp (Condition: {self.condition} )")
+        self.true_expr.print_content(indent + 2)
+        self.false_expr.print_content(indent + 2)
+            
+
 # ------------------------- Literals ------------------------- #
 class Primary(ASTNode):
-    def __init__(self, value, nodeType, line=None):
+    def __init__(self, value, line=None):
         self.value = value
         self.line = line
-        self.type = nodeType
 
     def __eq__(self, other):
         return isinstance(other, Primary) and self.value == other.value and self.line == other.line
@@ -555,81 +616,77 @@ class Primary(ASTNode):
 class Integer(Primary):
     def __init__(self, value, line=None):
         self.value = value
-        nodeType = self.getType()
-        super().__init__(value, nodeType , line = line)
+        super().__init__(value , line = line)
 
+    def evaluateType(self):
+        if isinstance(self.value, int):
+            return 'integer'
+        return "invalid"
+    
     def __repr__(self):
         return f"{self.value}"
 
-    def getType(self):
-        if isinstance(self.value, int):
-            return 'integer'
-        return "dynamic"
-    
     def accept(self, visitor):
         return visitor.visit_integer(self)
     
 class Float(Primary):
     def __init__(self, value, line=None):
         self.value = value
-        nodeType = self.getType()
-        super().__init__(value, nodeType, line = line)
+        super().__init__(value, line = line)
 
-    def __repr__(self):
-        return f"{self.value}"
-    
-    def getType(self):
+    def evaluateType(self):
         if isinstance(self.value, float):
             return 'float'
-        return "dynamic"
-        
+        return "invalid"
+      
+    def __repr__(self):
+        return f"{self.value}"
+  
     def accept(self, visitor):
         return visitor.visit_float(self)
 
 class Boolean(Primary):
     def __init__(self, value, line=None):
         self.value = value
-        nodeType = self.getType()
-        super().__init__(value, nodeType, line = line)
+        super().__init__(value, line = line)
 
-    def __repr__(self):
-        return f"{self.value}"
-    
-    def getType(self):
+    def evaluateType(self):
         if isinstance(self.value, str) and self.value.lower().strip() in ['true', 'false']:
             return 'boolean'
-        return "dynamic"
-    
+        return "invalid"
+   
+    def __repr__(self):
+        return f"{self.value}"
+ 
     def accept(self, visitor):
         return visitor.visit_boolean(self)
 
 class String(Primary):
     def __init__(self, value, line=None):
         self.value = value
-        nodeType = self.getType()
-        super().__init__(value, nodeType, line = line)
+        super().__init__(value, line = line)
+
+    def evaluateType(self):
+        if self.value is not None and isinstance(self.value, str):
+            return 'string'
+        return "invalid"
 
     def __repr__(self):
         return self.value
     
-    def getType(self):
-        if self.value is not None and isinstance(self.value, str):
-            return 'string'
-        return "dynamic"
 
     def accept(self, visitor):
         return visitor.visit_string(self)
 
 class Null(Primary):
     def __init__(self, line=None):
-        nodeType = self.getType()
-        super().__init__(None, nodeType, line = line)
+        super().__init__(None, line = line)
 
+    def evaluateType(self):
+        return 'null'
+   
     def __repr__(self):
         return "Null"
 
-    def getType(self):
-        return 'null'
-    
     def print_content(self, indent=0):
         print(" " * indent + "Null")

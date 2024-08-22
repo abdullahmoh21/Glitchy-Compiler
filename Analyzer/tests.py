@@ -36,8 +36,8 @@ class SemanticAnalyzerTests(unittest.TestCase):
         self.assertEqual(symbol_table.symbols['y'], 'integer')
         
         # Assert that the variables have been declared and used
-        self.assertTrue(symbol_table.is_declared('x'))
-        self.assertTrue(symbol_table.is_declared('y'))
+        self.assertTrue(symbol_table.isDeclared('x'))
+        self.assertTrue(symbol_table.isDeclared('y'))
         self.assertTrue(symbol_table.is_used('x'))
         self.assertTrue(symbol_table.is_used('y'))
         
@@ -98,8 +98,8 @@ class SemanticAnalyzerTests(unittest.TestCase):
         self.assertEqual(symbol_table.symbols['b'], 'integer')
         
         # Assert that the variables have been declared and used
-        self.assertTrue(symbol_table.is_declared('a'))
-        self.assertTrue(symbol_table.is_declared('b'))
+        self.assertTrue(symbol_table.isDeclared('a'))
+        self.assertTrue(symbol_table.isDeclared('b'))
         self.assertTrue(symbol_table.is_used('a'))
         self.assertTrue(symbol_table.is_used('b'))
         
@@ -155,8 +155,8 @@ class SemanticAnalyzerTests(unittest.TestCase):
         self.assertEqual(symbol_table.symbols['b'], 'boolean')
         
         # Assert that the variables have been declared and used
-        self.assertTrue(symbol_table.is_declared('a'))
-        self.assertTrue(symbol_table.is_declared('b'))
+        self.assertTrue(symbol_table.isDeclared('a'))
+        self.assertTrue(symbol_table.isDeclared('b'))
         self.assertTrue(symbol_table.is_used('a'))
         self.assertTrue(symbol_table.is_used('b'))
         

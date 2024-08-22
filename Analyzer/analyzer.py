@@ -7,6 +7,11 @@ class SemanticAnalyzer:
     def __init__(self, ast):
         self.ast = ast
         self.symbol_table = SymbolTable()
+        
+        # node context
+        self.func_name = None
+        self.func_params = None
+        self.func_return_type = None
 
     def analyze(self):
         if error.has_error_occurred():
@@ -19,7 +24,7 @@ class SemanticAnalyzer:
         try:
             self.ast.accept(self)
         except Exception as e:
-                raise SemanticError(f"{e}")     
+            raise SemanticError({e})     
         
         print("\n\n")
         self.symbol_table.print_table()
@@ -31,54 +36,76 @@ class SemanticAnalyzer:
                 statement.accept(self)
 
     def visit_block(self, node):
-        self.symbol_table.enter_scope()
+        self.symbol_table.createScope()
         for statement in node.statements:
             if statement is not None:
                 statement.accept(self)
-        self.symbol_table.exit_scope()
+        self.symbol_table.exitScope()
         
     def visit_variable(self, node):
-        if isinstance(node,VariableDeclaration):
-            if self.symbol_table.lookup(node.name) is not None:
-                report(f"Variable '{node.name}' (Line number: {node.line}) is already defined.", type="Variable Declaration", lineNumber=node.line)
+        if isinstance(node, VariableDeclaration): 
+            if self.symbol_table.inScope(node.name) is not None:
+                report(f"Variable '{node.name}' is already defined.", type="Variable Declaration", line=node.line)
                 return 
             else:
-                # Determine the type from the initial value
-                var_type = node.type
-                self.symbol_table.add(node.name, var_type)
+                node.value.accept(self)
+                data_type = node.evaluateType()
+                
+                if node.annotation is not None:
+                    if node.annotation != data_type:
+                        report(f"Variable '{node.name}' expects type '{node.annotation} but got expression: '{node.value}' of type '{data_type}'", type="Type", line=node.line)
+                        return
+                
+                self.symbol_table.add(
+                    name=node.name,
+                    symbolType='variable',
+                    variableData={
+                        'data_type':data_type,
+                        'annotated': True if node.annotation is not None else False
+                    }
+                )
 
         elif isinstance(node, VariableUpdated):
-            if not self.symbol_table.is_declared(node.name):
-                report(f"Variable '{node.name}' (Line number: {node.line}) has not been defined.", type="Variable Update")
+            var = self.symbol_table.lookup(node.name)
+            if var is None or var['variable_data'] is None:
+                report(f"Variable '{node.name}' has not been defined.", type="Variable Update")
                 return
-            elif self.symbol_table.lookup(node.name) is None:
-                report(f"Variable '{node.name}' (Line number: {node.line}) is not in scope.", type="Variable Update")
-                return
-            else:
-                # Update the type based on the new value
-                var_type = node.type
-                self.symbol_table.update(node.name, var_type)
-                node.value.accept(self)
-                print(f"Updated variable '{node.name}' to type '{var_type}'.")
+            
+            node.value.accept(self)
+            data_type = node.evaluateType()
+            
+            var_data = var.get('variable_data')
+            if var_data.get('annotated') is True:
+                expected_type = var_data.get('data_type') 
+                if expected_type != data_type:
+                    report(f"Variable '{node.name}' expects type '{expected_type}' but got expression: '{node.value}' of type '{data_type}'", type="Type", line=node.line)
+                    return
+            
+            self.symbol_table.update(node.name, data_type)
 
-        elif isinstance(node, VariableReference):
-            if not self.symbol_table.is_declared(node.name):
+        elif isinstance(node, VariableReference):                
+            if not self.symbol_table.lookup(node.name):
                 report(f"Variable '{node.name}' (Line number: {node.line}) is used before it is defined.", type="Variable Reference")
                 return
-
+            
+            # set type tag so that expression types can be inferred directly without having to lookup value
+            var_type = self.symbol_table.get_type(node.name)
+            node.type = var_type
+            print(f"Variable {node.name} visited. Type set to: {var_type}")
+    
     def visit_print(self, node):
-        node.expression.accept(self)
+        node.value.accept(self)
         
     def visit_if(self, node):
-        self.ensure_boolean_context(node.comparison)
         node.comparison.accept(self)
+        self.ensure_boolean_context(node.comparison)
         
         node.block.accept(self)
         
         if node.elifNodes is not None:
             for elif_comparison, elif_block in node.elifNodes:
-                self.ensure_boolean_context(elif_comparison)
                 elif_comparison.accept(self)
+                self.ensure_boolean_context(elif_comparison)
                 elif_block.accept(self)
         
         if node.elseBlock is not None:
@@ -90,91 +117,128 @@ class SemanticAnalyzer:
         node.block.accept(self)
 
     def visit_input(self, node):
-        if not self.symbol_table.is_declared(node.varRef.name):
+        if not self.symbol_table.isDeclared(node.varRef.name):
             self.symbol_table.add(node.varRef.name, symbolType='string')   # input() always returns a string
-
-    # native methods like strVar.toInteger()
+            
+    # TODO: rename
     def visit_method_call(self, node):
-        if not self.symbol_table.is_declared(node.varRef.name):
-            report(f"Variable '{node.varRef.name}' is not defined", type="Method Call", lineNumber=node.line)
+        if not self.symbol_table.isDeclared(node.varRef.name):
+            report(f"Variable '{node.varRef.name}' is not defined", type="Method Call", line=node.line)
             return
 
-        var_type = node.varRef.type
+        var_type = node.varRef.evaluateType()
         method_dict = get_methods(var_type)
         
         if node.name not in method_dict:
-            report(f"Method '{node.name}' is not available for type '{var_type}'", type="Method Call", lineNumber=node.line)
+            report(f"Method '{node.name}' is not available for type '{var_type}'", type="Method Call", line=node.line)
             return
         
-        # Get the method signature
         method_signature = method_dict[node.name]
-        
-        # Parse the signature to extract argument types
         expected_arg_types = self.parse_signature(method_signature)
         
-        
-        # validate arity
         if len(node.arguments) != len(expected_arg_types):
-            report(f"Method '{node.name}' expects {len(expected_arg_types)} arguments but got {len(node.arguments)}", type="Method Call", lineNumber=node.line)
+            report(f"Method '{node.name}' expects {len(expected_arg_types)} arguments but got {len(node.arguments)}", type="Method Call", line=node.line)
             return
 
-        # Validate argument types
         for arg, expected_type in zip(node.arguments, expected_arg_types):
             if arg.type != expected_type:
-                report(f"Argument '{arg}' does not match expected type '{expected_type}' for method '{node.name}'", type="Method Call", lineNumber=node.line)
+                report(f"Argument '{arg}' does not match expected type '{expected_type}' for method '{node.name}'", type="Method Call", line=node.line)
     
-    def visit_function_declaration(self,function):
-        if self.symbol_table.lookup(function.name) is not None:
-            report(f"The symbol name '{self.name}' already exists. Please rename.", type="Function Declaration", lineNumber=function.line)
+    def visit_function_declaration(self, node):
+        if self.symbol_table.lookup(node.name) is not None:
+            report(f"The symbol name '{self.name}' already exists. Please rename.", type="Function Declaration", line=node.line)
             return 
         
-        self.symbol_table.add(name=function.name,symbolType="function", functionData={"parameters": function.parameters, "arity": function.arity, "return_type": function.return_type})
+        self.symbol_table.add(
+            name=node.name, 
+            symbolType="function", 
+            functionData={
+                "parameters": node.parameters,
+                "arity": node.arity, 
+                "return_type": node.return_type
+            }
+        )
         
-        self.symbol_table.enter_scope()
+        self.symbol_table.createScope()
         
-        for parameter in function.parameters:
-            self.symbol_table.add(name=parameter, symbolType="parameter")
-        
-        for statement in function.block.statements:
-            if statement is not None:
-                statement.accept(self)
+        for parameter in node.parameters:
+            self.symbol_table.add(
+                name = parameter.name,
+                symbolType = 'parameter',
+                parameterData = {
+                    'data_type': parameter.type,
+                    'function_name': node.name
+                }
+            )
             
-        self.symbol_table.exit_scope()
-    
-    def visit_function_call(self,functionCall):
-        symbol = self.symbol_table.lookup(functionCall.name)
-
-        if symbol and 'functionData' in symbol:
-            function = symbol['functionData']
-        else:
-            report(f"A function with name '{functionCall.name}' does not exists.", type="Function Declaration", lineNumber=functionCall.line)
-            return
+        self.func_name = node.name
+        self.func_params = node.parameters
+        self.func_return_type = node.return_type
         
-        if function['arity'] != functionCall.arity:
-            report(f"Function '{functionCall.name}' expects {function['arity']} arguments but received {functionCall.arity} arguments", type="Function Call", lineNumber=functionCall.line)
+        
+        for statement in node.block.statements:
+            statement.accept(self)
+            
+        self.symbol_table.exitScope()
+        
+        self.func_name = None
+        self.func_params = None
+        self.func_return_type = None
         
     def visit_return(self, node):
         node.value.accept(self)
-
+        
+        inferred_type = node.evaluateType()
+        
+        if inferred_type != self.func_return_type:
+            report(f"Expected return of type '{self.func_return_type}' for function '{self.func_name}' got: '{inferred_type}' instead.",type="Return", line=node.line)
+            self.symbol_table.exitScope()
+            return
+        
+    def visit_parameter(self, node):
+        if not self.symbol_table.lookup(node.name):
+            report(f"Parameter '{node.name}' can only be used inside its function body.", type="Parameter Reference")
+            return
+        
+    def visit_function_call(self, node):
+        func_name = node.name
+        symbol = self.symbol_table.lookup(func_name)
+        
+        if symbol and 'function_data' in symbol:
+            function = symbol['function_data']
+        else:
+            report(f"A function with name '{node.name}' does not exists.", type="Function Call", line=node.line)
+            return
+        
+        if node.arity != function.get('arity'):
+            report(f"Function '{func_name}' expects {function['arity']} arguments but received {node.arity} arguments", type="Node Call", line=node.line)
+        
+        for received_arg, expected_arg in zip(node.arguments, function.get('parameters')):
+            received_arg.value.accept(self)
+            received_arg_type = received_arg.value.evaluateType()
+            if received_arg_type != expected_arg.type:
+                report(f"Expected type '{expected_arg.type}' for parameter '{expected_arg.name}' got type '{received_arg.type}'",type="Parameter",line=node.line)
+        
+        # to make generators life easier
+        node.type = function.get('return_type', None) 
+           
     def visit_comparison(self, node):
         node.left.accept(self)
         node.right.accept(self)
         self.check_type_compatibility(node.left, node.right, node.operator)
     
+    # TODO: add illegal math op checks like x / 0
     def visit_binary_op(self, node):
         node.left.accept(self)
         node.right.accept(self)
         self.check_type_compatibility(node.left, node.right, node.operator)
-
+        
     def visit_logical_op(self, node):
         node.left.accept(self)
         node.right.accept(self)
+        
         self.check_type_compatibility(node.left, node.right, node.operator)
-
-        if node.type != 'boolean':
-            report(f"Logical operation does not result in boolean: {node.left.type} {node.operator} {node.right.type}", type="Type Error", lineNumber=node.line)
-            return
-    
+        
     def visit_unary(self, node):
         node.operand.accept(self)
         self.check_unary_type_compatibility(node.operand, node.operator)
@@ -209,58 +273,44 @@ class SemanticAnalyzer:
         return arg_types
 
     def check_unary_type_compatibility(self, left, operator):
-        operand_type = left.type
+        operand_type = left.evaluateType()
 
         if operator == '!':
             if operand_type != 'boolean':
-                report(f"Illegal operation: {operator} {operand_type}", type="Type", lineNumber=operand.line)
+                report(f"Illegal operation: {operator} {operand_type}", type="Type", line=operand.line)
                 return
         elif operator == '-' or operator == '+':
             if operand_type not in ['integer', 'float']:
-                report(f"Illegal operation: {operator} {operand_type}", type="Type", lineNumber=operand.line)
+                report(f"Illegal operation: {operator} {operand_type}", type="Type", line=operand.line)
                 return
         else:
-            report(f"Unknown unary operator: {operator}", type="Type", lineNumber=operand.line)
+            report(f"Unknown unary operator: {operator}", type="Type", line=operand.line)
             return
         
     def check_type_compatibility(self, left, right, operator):
-        left_type = left.type
-        print(f"Left type in check_type_compatibility: {left_type}")
-        right_type = right.type
-        print(f"Right type in check_type_compatibility: {right_type}")
-        
-        # Un resolved types
-        if left_type == 'dynamic' or right_type == 'dynamic':
-            return
+        # TODO: add err for 'invalid' returned
+        left_type = left.evaluateType()
+        right_type = right.evaluateType()
 
-        # Arithmetic operations
+        # Handle binary operations
         if operator in ['/', '*', '+', '-']:
             if left_type not in ['integer', 'float'] or right_type not in ['integer', 'float']:
-                report(f"Illegal operation: {left_type} {operator} {right_type}", type="Type", lineNumber=left_node.line)
-                return
+                report(f"Illegal Binary operation: '{left_type}' '{operator}' '{right_type}'", type="Type", line=left.line)
 
-        # Comparisons
+        # Handle comparisons
         elif operator in ['==', '!=', '<', '<=', '>', '>=']:
             if left_type != right_type:
-                report(f"Type mismatch in comparison: {left_type} {operator} {right_type}", type="Type", lineNumber=left_node.line)
-                return
+                report(f"Type mismatch in comparison: '{left_type}' '{operator}' '{right_type}'", type="Type", line=left.line)
             elif left_type not in ['integer', 'float']:
-                report(f"Invalid types for comparison: {left_type} {operator} {right_type}", type="Type", lineNumber=left_node.line)
-                return
+                report(f"Invalid types for comparison: '{left_type}' '{operator}' '{right_type}'", type="Type", line=left.line)
 
-        # Boolean operations
+        # Handle logical operations
         elif operator in ['&&', '||']:
             if left_type != 'boolean' or right_type != 'boolean':
-                report(f"Type mismatch in logical operation: {left_type} {operator} {right_type}", type="Type", lineNumber=left_node.line)
-                return
+                report(f"Logical operation does not result in boolean: '{left_type}' '{operator}' '{right_type}'\n\t {left} {operator} {right}", type="Type Error", line=left.line)
 
     def ensure_boolean_context(self, node):
-        expression_type = node.type
+        expression_type = node.evaluateType()
         if expression_type != 'boolean':
-            formattedType = "Invalid" if (expression_type == 'unknown' or expression_type == None) else expression_type
-            report(f"(ensure_boolean_context) Expression does not evaluate to boolean but to: {expression_type}\n\t {node.left} {node.operator} {node.right}\n",
-                   type="Type", 
-                   lineNumber=node.line
-            )
-            return
-    
+            formattedType = "Invalid" if (expression_type is None) else expression_type
+            report(f"(ensure_boolean_context) Expression does not evaluate to boolean but to: '{formattedType}'\n\t {node.left} {node.operator} {node.right}\n", type="Type", line=node.line)

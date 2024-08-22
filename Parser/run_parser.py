@@ -6,13 +6,7 @@ from Error import has_error_occurred
 
 def main():
         source_code = """        
-        function add(x, y) {
-            set sum = x + y
-            return "sum"
-            return "sum"
-        }
-        
-        set x = add(10,5)
+            set s = x > 2 ? 3 : "Hello" + " World" 
         """
         lexer = Lexer(source_code)
         parser = Parser(lexer)

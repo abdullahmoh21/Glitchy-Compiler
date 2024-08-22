@@ -1,9 +1,4 @@
-        function add(x, y) {
-            set sum = x + y
-            return sum
-        }
-        return x
-        
-        set x = input()
-        
-        set x = add(10,2)
+function int add(x:int, y:string) {
+    set sum = x + y
+    return sum 
+}

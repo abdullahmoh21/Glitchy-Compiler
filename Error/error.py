@@ -5,7 +5,7 @@ This module defines all the exceptions that can be raised by the compiler.
 
 error_occurred = False
 
-def report(message, type="Unknown", lineNumber=None):
+def report(message, type="Unknown", line=None):
     """
     Prints an error message to standard output without exiting the program. 
     Marks that code is erroneous so that further execution (after parser) can be stopped.
@@ -13,13 +13,13 @@ def report(message, type="Unknown", lineNumber=None):
     Args:
         message (str): The error message to report.
         type (str): The type of error (e.g., Syntax, Lexer, etc.).
-        lineNumber (int, optional): The line number where the error occurred.
+        line (int, optional): The line number where the error occurred.
     """
     global error_occurred
     error_occurred = True
     
-    if lineNumber is not None:
-        error_message = f"{type} Error at line {lineNumber}: {message}"
+    if line is not None:
+        error_message = f"{type} Error at line {line}: {message}"
     else:
         error_message = f"{type} Error: {message}"
     print(error_message)  # Print the error message instead of exiting
@@ -59,22 +59,10 @@ class SemanticError(Error):
     def __str__(self):
         return f"{self.message}"
 
-
-class LexerError(Error):
-    """Exception raised for errors during tokenization."""
-    def __init__(self, message, line):
-        super().__init__(message)
-        self.line = line
-
-    def __str__(self):
-        return f"LexerError: {self.message} at line {self.line}"
-
-
 class TypeError(Error):
     """Exception raised for type mismatches or illegal operations."""
-    def __init__(self, message, type_info):
+    def __init__(self, message):
         super().__init__(message)
-        self.type_info = type_info
 
     def __str__(self):
         return f"TypeError: {self.message}"

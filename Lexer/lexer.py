@@ -6,7 +6,7 @@ class Lexer:
     def __init__(self, source): 
         self.source = source + "\n"  # Appends a newline to simplify lexing the last token
         
-        self.lineNumber = 1     # Current line in the source code
+        self.lineNumber= 1     # Current line in the source code
         self.lastToken = None
         self.currentChar = ''
         self.currentPos = -1    # Pointer for current position in the source code
@@ -23,7 +23,6 @@ class Lexer:
             if self.currentChar == '\n':
                 self.lineNumber += 1
                 self.lineStart = self.currentPos + 1
-
 
     def peek(self):
         if self.currentPos + 1 >= len(self.source):
@@ -50,6 +49,10 @@ class Lexer:
                 prevChar = self.currentChar
                 self.nextChar()
                 token = Token(TokenType.INCREMENT, prevChar + self.currentChar)
+            elif self.peek() == '=':
+                prevChar = self.currentChar
+                self.nextChar()
+                token = Token(TokenType.PLUS_EQUAL, prevChar + self.currentChar)
             else:
                 token = Token(TokenType.PLUS, self.currentChar)
             
@@ -59,6 +62,10 @@ class Lexer:
                 prevChar = self.currentChar
                 self.nextChar()
                 token = Token(TokenType.DECREMENT, prevChar + self.currentChar)
+            elif self.peek() == '=':
+                prevChar = self.currentChar
+                self.nextChar()
+                token = Token(TokenType.MINUS_EQUAL, prevChar + self.currentChar)
             else:
                 token = Token(TokenType.MINUS, self.currentChar)
             
@@ -67,6 +74,12 @@ class Lexer:
             
         elif self.currentChar == '/': 
             token = Token(TokenType.SLASH, self.currentChar)
+            
+        elif self.currentChar == '%': 
+            token = Token(TokenType.MODUlO, self.currentChar)
+            
+        elif self.currentChar == '^': 
+            token = Token(TokenType.POW, self.currentChar)
         
         # ---------------- LOGICAL OPERATORS ----------------
         elif self.currentChar == '=':   
@@ -121,7 +134,7 @@ class Lexer:
                 self.nextChar()
                 token = Token(TokenType.OR, prevChar + self.currentChar)  # Add an OR token type
             else:
-                report("Expected ||, got |", lineNumber =self.lineNumber)
+                report("Expected ||, got |", line=self.lineNumber)
 
         # ---------------- DATA TYPES ----------------
         
@@ -190,8 +203,11 @@ class Lexer:
             startPos = self.currentPos
             while self.peek().isalnum() or self.peek() == '_':
                 self.nextChar()
-            
+
             tokText = self.source[startPos : self.currentPos + 1]
+            
+            if '$' in tokText:
+                report("Invalid Token '$' in identifier", type="Syntax", line=startLine)
 
             # Check for boolean literals
             if tokText == "true" or tokText == "false":
@@ -223,17 +239,19 @@ class Lexer:
             token = Token(TokenType.DOT, self.currentChar)
         elif self.currentChar == ',':
             token = Token(TokenType.COMMA, self.currentChar)
-            
+        elif self.currentChar == ':':
+            token = Token(TokenType.COLON, self.currentChar)
+        elif self.currentChar == '?':
+            token = Token(TokenType.QMARK, self.currentChar)
+        
         elif self.currentChar == '\n':
-            token = Token(TokenType.NEWLINE, '\n')
-
-            
+            token = Token(TokenType.NEWLINE, '\n')   
         elif self.currentChar == '\0':
             token = Token(TokenType.EOF, '')
             
         else:
             message= f"(Lexer) Unknown token: {self.currentChar}"
-            report(message, type="Syntax",lineNumber = self.lineNumber)
+            report(message, type="Syntax",line= self.lineNumber)
             
         self.lastToken = token
         self.nextChar()
