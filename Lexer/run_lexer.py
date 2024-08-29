@@ -17,6 +17,7 @@ def main():
     with open(f"{sys.argv[1]}", 'r') as inputFile:
         source = inputFile.read()
         
+        
     # Initialize the lexer and print generated tokens.
     lexer = Lexer(source)
     token = lexer.getToken()

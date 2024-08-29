@@ -30,7 +30,7 @@ class Lexer:
         return self.source[self.currentPos + 1]
 
     def skipWhitespace(self):
-        while self.currentChar in [' ', '\t', '\r']:
+        while self.currentChar in [' ']:
             self.nextChar()
 
     def skipComment(self):
@@ -143,21 +143,30 @@ class Lexer:
             self.nextChar()
             startLine = self.lineNumber
             startPos = self.currentPos
+            stringValue = ""
 
-            while self.currentChar != '\"' and self.currentChar != '\n':
-                if self.currentChar in ['\\', '\t','\r']:
-                    message = f"(Lexer) Illegal character in string: {repr(self.currentChar)}"  # repr to display \n as well
-                    report(message, type="Syntax", lineNumber=startLine)
+            allowed_escapes = ['n', 't',  r"/", '"', 'r', 'f', 'v', 'a', 'b']
+
+            while self.currentChar != '\"':
+                if self.currentChar.startswith('\\'): 
+                    self.nextChar()
+                    escape_char = self.currentChar
+                    if escape_char in allowed_escapes:
+                        stringValue += r"/" + self.currentChar
+                    else:
+                        report(f"Unknown escape sequence '\\{self.currentChar}'", type="Syntax", line=self.lineNumber)
+                        token = Token(TokenType.ERROR, None)
+                else:
+                    stringValue += self.currentChar  
+                    
                 self.nextChar()
 
-            if self.currentChar == '\n':
-                message = "(Lexer) Unterminated string literal"
-                report(message, type="Syntax", lineNumber=startLine)
-                token = Token(TokenType.ERROR, None) 
-            else:
-                # Create token for the string
-                string = self.source[startPos:self.currentPos]
-                token = Token(TokenType.STRING, string)
+                if self.currentChar == '\0':
+                    report("Unterminated string found.", type="Syntax", line=self.lineNumber)
+                    token = Token(TokenType.ERROR, None)
+                    break
+            
+            token = Token(TokenType.STRING, stringValue)
         
         # INTEGERS AND FLOATS  
         elif self.currentChar.isdigit():
@@ -171,7 +180,7 @@ class Lexer:
                 is_float = True
                 if not self.peek().isdigit():
                     message = f"(Lexer) Illegal character in number: {self.peek()}"
-                    report(message, type="Syntax", lineNumber=self.lineNumber)
+                    report(message, type="Syntax", line=self.lineNumber)
                 while self.peek().isdigit():
                     self.nextChar()
             # Extract the number as a string
@@ -184,7 +193,7 @@ class Lexer:
                 except ValueError:
                     # Handle conversion error
                     message = f"(Lexer) Invalid float format: {number_str}"
-                    report(message, type="Syntax", lineNumber=self.lineNumber)
+                    report(message, type="Syntax", line=self.lineNumber)
                 token = Token(TokenType.FLOAT, number)
             else:
                 try:
@@ -236,7 +245,21 @@ class Lexer:
         elif self.currentChar == ';':
             token = Token(TokenType.SEMICOLON, self.currentChar)
         elif self.currentChar == '.':
-            token = Token(TokenType.DOT, self.currentChar)
+            if self.peek().isdigit():
+                startPos = self.currentPos
+                self.nextChar()  # consume '.'
+                while self.peek().isdigit():
+                    self.nextChar()
+                number_str = self.source[startPos:self.currentPos+1]  # slice up to currentPos
+                try:
+                    number = float(number_str)
+                except ValueError:
+                    number = 0.0 
+                    message = f"(Lexer) Invalid float format: {number_str}"
+                    report(message, type="Syntax", line=self.lineNumber)  # report() will stop further stages. 
+                token = Token(TokenType.FLOAT, number)
+            else:
+                token = Token(TokenType.DOT, self.currentChar)
         elif self.currentChar == ',':
             token = Token(TokenType.COMMA, self.currentChar)
         elif self.currentChar == ':':

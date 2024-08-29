@@ -83,6 +83,9 @@ class VariableReference(ASTNode):
     def __init__(self, name, line = None):
         self.name = name  
         self.line = line
+        
+        # set in analyzer
+        self.value = None
         self.type = None
         
     def evaluateType(self):
@@ -200,12 +203,13 @@ class Parameter(ASTNode):
         print(" " * indent + f"Parameter: {self.name} (type: {self.type})")
 
 class FunctionCall(ASTNode):
-    def __init__(self, name, arguments, line=None):
+    def __init__(self, name, args, line=None):
         self.name = name
-        self.arguments = arguments
-        self.arity = len(arguments)
+        self.args = args
+        self.arity = len(args)
         self.line = line
         self.type = None     # set in analyzer
+        self.typeOfEval = None  
     
     def evaluateType(self):
         if self.type is not None:
@@ -218,15 +222,17 @@ class FunctionCall(ASTNode):
                 self.arguments == other.arguments)
     
     def __repr__(self):
-        return f"FunctionCall({self.name}, {self.arguments})"
+        return f"FunctionCall({self.name}, {self.args})"
     
     def accept(self, visitor):
         return visitor.visit_function_call(self)
     
     def print_content(self, indent=0):
         print(" " * indent + f"FunctionCall: {self.name}")
-        if self.arguments is not None:
-            for arg in self.arguments:
+        if self.typeOfEval is not None:
+            print(" " * (indent + 2) + f"typeof evaluated to : {self.typeOfEval}")
+        if len(self.args) > 0:
+            for arg in self.args:
                 arg.print_content(indent + 2)
         else:
             print(" " * (indent + 2) + "Arguments: None")
@@ -253,7 +259,7 @@ class Argument(ASTNode):
         return visitor.visit_argument(self)
     
     def print_content(self, indent=0):
-        print(" " * indent + f"Argument: {self.name} (type: {self.type})")
+        print(" " * indent + f"Argument: {self.value}")
 
 class MethodCall(ASTNode):
     def __init__(self, varRef, name, arguments, line=None):
@@ -417,28 +423,33 @@ class BinaryOp(Expression):
         self.left = left
         self.operator = operator
         self.right = right
-        self._cached_type = None
+        self.cached_type = None
+        self.evaluatedString = None     # for concatenated strings
         super().__init__(left, operator, right, line)
 
     def evaluateType(self):
-        if self._cached_type is not None:
-            return self._cached_type
+        if self.cached_type is not None:
+            return self.cached_type
         
         left_type = self.left.evaluateType()
         right_type = self.right.evaluateType()
         numeric_types = ['integer', 'float']
-    
-        if self.operator in ['+', '-', '*', '/']:
+
+        if self.operator in ['+', '-', '*', '/', '%']:
             if left_type in numeric_types and right_type in numeric_types:
                 # If one is float, the result is float
                 if left_type == 'float' or right_type == 'float':
-                    self._cached_type = 'float'
-                self._cached_type = 'integer'
+                    self.cached_type = 'float'
+                else:
+                    self.cached_type = 'integer'
             elif self.operator == '+' and left_type == 'string' and right_type == 'string':
-                self._cached_type = 'string'
+                self.cached_type = 'string'
+            elif self.evaluatedString is not None:
+                # since "hello"+2 is valid, above elif wont run 
+                self.cached_type = 'string'  
 
-        return self._cached_type or "invalid"
-
+        return self.cached_type or "invalid"
+    
     def accept(self, visitor):
         return visitor.visit_binary_op(self)
     
@@ -452,7 +463,10 @@ class BinaryOp(Expression):
                 self.right == other.right)
 
     def print_content(self, indent=0):
-        print(" " * indent + f"BinaryOp (Operator: {self.operator})")
+        _ = f"String Concatenation" if self.evaluatedString is not None else f"Operator {self.operator}"
+        print(" " * indent + f"BinaryOp ({ _ })")
+        if self.evaluatedString is not None:
+            print(" " * indent +f"String evaluated to: {repr(self.evaluatedString)}")
         self.left.print_content(indent + 2)
         self.right.print_content(indent + 2)
        
@@ -510,7 +524,7 @@ class Comparison(Expression):
         
         left_type = self.left.evaluateType()
         right_type = self.right.evaluateType()
-        if left_type not in ['integer', 'float'] or right_type not in ['integer', 'float']:
+        if left_type not in ['integer', 'float','string'] or right_type not in ['integer', 'float','string']:
             return "invalid"
         self._cached_type = 'boolean'
         return self._cached_type
@@ -599,6 +613,7 @@ class TernaryOp(ASTNode):
             
 
 # ------------------------- Literals ------------------------- #
+
 class Primary(ASTNode):
     def __init__(self, value, line=None):
         self.value = value
@@ -611,7 +626,7 @@ class Primary(ASTNode):
         return f"{self.__class__.__name__}({self.value})"
     
     def print_content(self, indent=0):
-        print(" " * indent + f"{self.__class__.__name__}: {self.value}")
+        print(" " * indent + f"{self.__class__.__name__}: {repr(self.value)}")
 
 class Integer(Primary):
     def __init__(self, value, line=None):
@@ -672,9 +687,8 @@ class String(Primary):
         return "invalid"
 
     def __repr__(self):
-        return self.value
+        return f"{self.value}"
     
-
     def accept(self, visitor):
         return visitor.visit_string(self)
 

@@ -6,7 +6,10 @@ from Error import has_error_occurred
 
 def main():
         source_code = """        
-            set s = x > 2 ? 3 : "Hello" + " World" 
+            set y = "10"
+            if (typeof(y) == "int"){
+                print("int")
+            }
         """
         lexer = Lexer(source_code)
         parser = Parser(lexer)

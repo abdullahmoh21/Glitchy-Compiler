@@ -1,4 +1,2 @@
-function int add(x:int, y:string) {
-    set sum = x + y
-    return sum 
-}
+print("hello world \t what should i do?")
+set x = "hello world \t" + "what should i do?"

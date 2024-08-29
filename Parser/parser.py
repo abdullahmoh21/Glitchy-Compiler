@@ -7,7 +7,7 @@ from Ast import *
 class Parser:
     def __init__(self, lexer):
         self.lexer = lexer
-        self.line_number = 1
+        self.lineNumber = 1
         self.currentToken = None
         self.peekToken = None
         self.inFunctionBlock = False
@@ -40,7 +40,7 @@ class Parser:
         if not self.checkToken(type):
             if errorMsg is None:
                 errorMsg = f"Expected type: {type.name}, got '{self.currentToken.value}' (type: {self.currentToken.type.name}) "    #generic
-            report(errorMsg, line=self.line_number, type="Syntax")
+            report(errorMsg, line=self.lineNumber, type="Syntax")
             self.panic()
         self.nextToken()
 
@@ -53,7 +53,7 @@ class Parser:
         self.peekToken = self.lexer.getToken()
         
         if self.currentToken and self.currentToken.type == TokenType.NEWLINE:
-            self.line_number += 1
+            self.lineNumber += 1
     
     def validateType(self, type_string, variable_err_msg = None):
         """
@@ -140,8 +140,8 @@ class Parser:
         statements = []
 
         # statement() can return an array of nodes or a single node.
-        # sometimes I want to add multiple nodes in one pass such as for multiple variable declarations
-        # statement() is also called recursively, without this we would have nested arrays everywhere
+        # sometimes I want to add multiple nodes in one pass such as for multiple variable declaration/update
+        # statement() is also called recursively, and i dont want to handle nested arrays
         while not self.checkToken(TokenType.EOF):
             stmt = self.statement()
             if stmt is not None:     
@@ -160,33 +160,10 @@ class Parser:
                 self.match(TokenType.PRINT)
                 self.match(TokenType.LPAREN, errorMsg="Print expressions must be enclosed with parenthesis: '(' value to print ')'")
                 
-                valueToPrint = None
-                if self.checkToken(TokenType.STRING):
-                    valueToPrint = String(self.currentToken.value)
-                    self.nextToken()
-                    
-                elif self.checkToken(TokenType.INTEGER):
-                    valueToPrint = Integer(int(self.currentToken.value))
-                    self.nextToken()
-                    
-                elif self.checkToken(TokenType.FLOAT):
-                    try:
-                        valueToPrint = Float(float(self.currentToken.value))
-                        self.nextToken()
-                    except ValueError:
-                        report(f"Invalid float value: {self.currentToken.value}", line=self.line_number, type="Syntax")
-                        self.panic()
-                        
-                elif self.checkToken(TokenType.IDENTIFIER) and self.checkPeek(TokenType.RPAREN) :
-                    var_name = self.currentToken.value
-                    valueToPrint = VariableReference(var_name, line = self.line_number)
-                    self.nextToken()
-                
-                else:   #catch-all: assume its an expression, if its not self.expression will throw appropriate error
-                    valueToPrint = self.expression()
+                valueToPrint = self.expression()
                 
                 self.match(TokenType.RPAREN, errorMsg=f"No closing Parenthesis for print statement.")
-                node = Print(valueToPrint, self.line_number)
+                node = Print(valueToPrint, self.lineNumber)
                 
             # If-elif-else statements  
             elif self.checkToken(TokenType.IF):
@@ -223,7 +200,7 @@ class Parser:
                 base_args = {
                     'comparison': comparison_node,
                     'block': if_block_node,
-                    'line': self.line_number
+                    'line': self.lineNumber
                 }
                 # Add optional arguments conditionally
                 if elif_nodes:
@@ -259,19 +236,19 @@ class Parser:
                 self.inFunctionBlock = True
                 function_body = self.block()
                 self.inFunctionBlock = False
-                node = FunctionDeclaration(function_name, return_type_tag, parameters, function_body, self.line_number)
+                node = FunctionDeclaration(function_name, return_type_tag, parameters, function_body, self.lineNumber)
             
             elif self.checkToken(TokenType.RETURN):
                 if self.inFunctionBlock == False:
-                    report("Return statements are only allowed inside a functions body",type="Syntax",line=self.line_number)
+                    report("Return statements are only allowed inside a functions body",type="Syntax",line=self.lineNumber)
                     self.panic()
                     
                 self.nextToken()
                 if not self.checkToken(TokenType.NEWLINE):
                     returnVal = self.expression()
-                    node = Return(returnVal, self.line_number)
+                    node = Return(returnVal, self.lineNumber)
                 else:
-                    node = Return(Null(),self.line_number)
+                    node = Return(Null(),self.lineNumber)
             
             # While loop
             elif self.checkToken(TokenType.WHILE):
@@ -280,7 +257,7 @@ class Parser:
                 comparison_node = self.expression()   # parse an expression rn, will validate it later
                 self.match(TokenType.RPAREN, errorMsg="No closing parenthesis ')' for while condition found.")
                 block_node = self.block()
-                node = While(comparison_node, block_node, self.line_number)
+                node = While(comparison_node, block_node, self.lineNumber)
             
             # For loop 
             elif self.checkToken(TokenType.FOR):
@@ -305,25 +282,25 @@ class Parser:
                 increment = None
                 if self.checkPeek(TokenType.EQ):
                     if self.currentToken.value != var_name:     # continue parsing. no need to panic :)
-                        report(f"Expected variable '{var_name}' in increment expression, got '{self.currentToken.value}'", line=self.line_number, type="Syntax")
+                        report(f"Expected variable '{var_name}' in increment expression, got '{self.currentToken.value}'", line=self.lineNumber, type="Syntax")
                     self.nextToken()    # skip the variable name
                     self.nextToken()    # skip the '=' token
                     update_expression = self.expression()  
-                    increment = VariableUpdated(var_name,update_expression,self.line_number)
+                    increment = VariableUpdated(var_name,update_expression,self.lineNumber)
                 elif self.checkPeek(TokenType.INCREMENT):
                     if self.currentToken.value != var_name: 
-                        report(f"Expected variable '{var_name}' in increment expression, got '{self.currentToken.value}'", line=self.line_number, type="Syntax")
-                    increment = VariableUpdated(var_name,BinaryOp(VariableReference(var_name, self.line_number), '+', Integer(1),self.line_number),self.line_number)
+                        report(f"Expected variable '{var_name}' in increment expression, got '{self.currentToken.value}'", line=self.lineNumber, type="Syntax")
+                    increment = VariableUpdated(var_name,BinaryOp(VariableReference(var_name, self.lineNumber), '+', Integer(1),self.lineNumber),self.lineNumber)
                     self.nextToken()    # skip the variable name
                     self.nextToken()    # skip the ++ token
                 elif self.checkPeek(TokenType.DECREMENT):
                     if self.currentToken.value != var_name:
-                        report(f"Expected variable '{var_name}' in increment expression, got '{self.currentToken.value}'", line=self.line_number, type="Syntax")
-                    increment = VariableUpdated(var_name,BinaryOp(VariableReference(var_name, self.line_number), '-', Integer(1),self.line_number), self.line_number)
+                        report(f"Expected variable '{var_name}' in increment expression, got '{self.currentToken.value}'", line=self.lineNumber, type="Syntax")
+                    increment = VariableUpdated(var_name,BinaryOp(VariableReference(var_name, self.lineNumber), '-', Integer(1),self.lineNumber), self.lineNumber)
                     self.nextToken()    # skip the variable name
                     self.nextToken()    # skip the -- token
                 else:
-                    report(f"Expected increment expression, got '{self.currentToken.value} '", line=self.line_number, type="Syntax")
+                    report(f"Expected increment expression, got '{self.currentToken.value} '", line=self.lineNumber, type="Syntax")
                     self.panic()
                     
                 self.match(TokenType.RPAREN, errorMsg="Missing closing parenthesis ')' in For loop")
@@ -332,8 +309,8 @@ class Parser:
                 while_body = self.block(appendNode=increment)
                 
                 # Desugar to a while loop
-                initialization_node = VariableDeclaration(var_name, initialCount, self.line_number)
-                node = Block([initialization_node, While(comparison_node, while_body, self.line_number)])
+                initialization_node = VariableDeclaration(var_name, initialCount, self.lineNumber)
+                node = Block([initialization_node, While(comparison_node, while_body, self.lineNumber)])
                 
             # (SET) Variable Declaration
             elif self.checkToken(TokenType.SET):
@@ -348,7 +325,7 @@ class Parser:
                 
                 if self.checkToken(TokenType.INPUT):
                     if type_tag is not None:
-                        report(f"Cannot type annotate function calls like input(). Invalid token: '{type_tag}'", type="Type Annotation", line=self.line_number)
+                        report(f"Cannot type annotate function calls like input(). Invalid token: '{type_tag}'", type="Type Annotation", line=self.lineNumber)
                     node = self.handle_input(var_name)
                 else:
                     node = self.handle_variable_declaration(var_name, type_tag)
@@ -372,7 +349,7 @@ class Parser:
 
                 elif self.checkToken(TokenType.EQ, TokenType.PLUS_EQUAL, TokenType.MINUS_EQUAL):
                     node = self.handle_variable_assignment(var_name)
-
+            
             # (\n) random empty lines
             elif self.checkToken(TokenType.NEWLINE):
                 self.nl()
@@ -384,7 +361,7 @@ class Parser:
             # TODO: helper function to check token and give appropriate errs? like lone elif/else, 
             # catch-all
             else:
-                report(f"Invalid statement at: '{self.currentToken.value}' ({self.currentToken.type.name})", line=self.line_number, type="Syntax")
+                report(f"Invalid statement at: '{self.currentToken.value}' ({self.currentToken.type.name})", line=self.lineNumber, type="Syntax")
                 self.panic()   
         
         # when things get fucked, we panic
@@ -405,7 +382,7 @@ class Parser:
                 self.nextToken()
                 type_tag = self.validateType(type_annotation)
                 if type_tag == 'invalid':
-                    report(f"Invalid type annotation received: '{type_annotation}' ", type="Type Annotation", line=self.line_number)
+                    report(f"Invalid type annotation received: '{type_annotation}' ", type="Type Annotation", line=self.lineNumber)
                     type_tag = None
             return type_tag
 
@@ -416,8 +393,8 @@ class Parser:
         self.match(TokenType.RPAREN, errorMsg="Input keyword should be followed by '()'")
         
         return Input(
-            VariableReference(var_name, self.line_number),
-            self.line_number
+            VariableReference(var_name, self.lineNumber),
+            self.lineNumber
         )
 
     def handle_variable_declaration(self, var_name, type_tag):
@@ -425,7 +402,7 @@ class Parser:
         if self.checkToken(TokenType.COMMA):
             node = []
             self.nextToken()
-            node.append(VariableDeclaration(var_name, var_expr, annotation=type_tag, line=self.line_number))
+            node.append(VariableDeclaration(var_name, var_expr, annotation=type_tag, line=self.lineNumber))
             
             # set x:int = 10, y:string = "hello", 
             while not self.checkToken(TokenType.NEWLINE):
@@ -437,10 +414,10 @@ class Parser:
                 var_expr = self.expression()
                 if self.checkToken(TokenType.COMMA):
                     self.nextToken()
-                node.append(VariableDeclaration(var_name, var_expr, annotation=type_tag, line=self.line_number))
+                node.append(VariableDeclaration(var_name, var_expr, annotation=type_tag, line=self.lineNumber))
             
         else:
-            node = VariableDeclaration(var_name, var_expr, annotation=type_tag, line=self.line_number)
+            node = VariableDeclaration(var_name, var_expr, annotation=type_tag, line=self.lineNumber)
             
         return node
 
@@ -448,31 +425,31 @@ class Parser:
         self.match(TokenType.INCREMENT)
         return VariableUpdated(
             var_name,
-            BinaryOp(VariableReference(var_name, line=self.line_number), '+', Integer(1)),
-            self.line_number
+            BinaryOp(VariableReference(var_name, line=self.lineNumber), '+', Integer(1)),
+            self.lineNumber
         )
 
     def handle_decrement(self, var_name):
         self.match(TokenType.DECREMENT)
         return VariableUpdated(
             var_name,
-            BinaryOp(VariableReference(var_name, line=self.line_number), '-', Integer(1)),
-            self.line_number
+            BinaryOp(VariableReference(var_name, line=self.lineNumber), '-', Integer(1)),
+            self.lineNumber
         )
 
     def handle_member_method_call(self, var_name):
         self.nextToken()
         method_name = self.currentToken.value
-        self.match(TokenType.IDENTIFIER)
+        self.match(TokenType.IDENTIFIER,errorMsg=f"Missing method name after '.' ")
         self.match(TokenType.LPAREN, errorMsg=f"Missing opening '(' for function call:{method_name}")
         arguments = []
         while not self.checkToken(TokenType.RPAREN):
             arguments.append(self.expression())
             if self.checkToken(TokenType.COMMA):
                 self.match(TokenType.COMMA)
-        self.match(TokenType.RPAREN, errorMsg=f"Missing closing parenthesis ')' for function call:{method_name}")
-        varRef = VariableReference(var_name, line=self.line_number)
-        return MethodCall(varRef, method_name, arguments, self.line_number)
+        self.match(TokenType.RPAREN, errorMsg=f"Missing closing parenthesis ')' for method call:{method_name}")
+        varRef = VariableReference(var_name, line=self.lineNumber)
+        return MethodCall(varRef, method_name, arguments, self.lineNumber)
 
     def handle_function_call(self, func_name):
         self.nextToken()
@@ -483,7 +460,7 @@ class Parser:
             if self.checkToken(TokenType.COMMA):
                 self.match(TokenType.COMMA)
         self.match(TokenType.RPAREN)
-        return FunctionCall(func_name, args, self.line_number)
+        return FunctionCall(func_name, args, self.lineNumber)
 
     def handle_variable_assignment(self, var_name):
         if self.checkToken(TokenType.PLUS_EQUAL, TokenType.MINUS_EQUAL):
@@ -496,7 +473,7 @@ class Parser:
             
             var = VariableReference(var_name)
             expr = BinaryOp(var, operator, expr)
-            return VariableUpdated(var_name, expr, line= self.line_number)
+            return VariableUpdated(var_name, expr, line= self.lineNumber)
         
         self.match(TokenType.EQ, f"Expected an '=' token but instead got: {self.currentToken.value}")
         if self.checkToken(TokenType.INPUT):
@@ -504,8 +481,8 @@ class Parser:
             self.match(TokenType.LPAREN, errorMsg="Input keyword should be followed by '()'")
             self.match(TokenType.RPAREN, errorMsg="Input keyword should be followed by '()'")
             return Input(
-                VariableReference(var_name, self.line_number),
-                self.line_number
+                VariableReference(var_name, self.lineNumber),
+                self.lineNumber
             )
         
         elif self.checkToken(TokenType.IDENTIFIER):
@@ -518,17 +495,17 @@ class Parser:
                     self.nextToken()
             expr = self.expression()
             if expr is None:
-                report(f"Expected an expression in multiple variable assignment, got: {repr(self.currentToken.value)} instead",type="Syntax",line=self.line_number)
+                report(f"Expected an expression in multiple variable assignment, got: {repr(self.currentToken.value)} instead",type="Syntax",line=self.lineNumber)
             nodes = []
             for var_name in vars:
-                update_node = VariableUpdated(var_name, expr, self.line_number)
+                update_node = VariableUpdated(var_name, expr, self.lineNumber)
                 nodes.append(update_node)
             
             return nodes
             
         else:
             expr = self.expression()
-            return VariableUpdated(var_name, expr, self.line_number)
+            return VariableUpdated(var_name, expr, self.lineNumber)
 
     def block(self, appendNode=None ):
         self.match(TokenType.LBRACE)
@@ -563,24 +540,12 @@ class Parser:
     
     # for  && and || operators
     def logical(self):
-        node = self.ternary()  # Logical comes after equality in precedence
+        node = self.equality()  # Logical comes after equality in precedence
         while self.checkToken(TokenType.AND) or self.checkToken(TokenType.OR):
             logical_operator = self.currentToken.value
             self.nextToken()
             right = self.equality()
-            node = LogicalOp(node, logical_operator, right, self.line_number)
-        return node
-
-    # for ? : ternary operator
-    def ternary(self):
-        node = self.equality()  # Ternary comes after equality in precedence
-        if self.checkToken(TokenType.QMARK):
-            condition = node
-            self.nextToken()
-            true_expr = self.expression()  
-            self.match(TokenType.COLON, "Expected ':' after true expression in ternary operator")
-            false_expr = self.ternary() 
-            node = TernaryOp(condition, true_expr, false_expr, self.line_number)
+            node = LogicalOp(node, logical_operator, right, self.lineNumber)
         return node
     
     # for == and != operators
@@ -590,7 +555,7 @@ class Parser:
             operator = self.currentToken.value
             self.nextToken()
             right = self.comparison()   
-            node = Comparison(node, operator, right, self.line_number)
+            node = Comparison(node, operator, right, self.lineNumber)
         return node
 
     # for <, <=, >, >= operators
@@ -600,34 +565,18 @@ class Parser:
             operator = self.currentToken.value
             self.nextToken()
             right = self.additive()
-            node = Comparison(node, operator, right, self.line_number)
+            node = Comparison(node, operator, right, self.lineNumber)
         return node
 
     # for + and - operators
     def additive(self):
         node = self.term()  # Additive comes after term in precedence
-        
-        while self.checkToken(TokenType.PLUS):
+        while self.checkToken(TokenType.PLUS) or self.checkToken(TokenType.MINUS):
+            operator = self.currentToken.value
             self.nextToken()
             right = self.term()
 
-            # if only one operand is a string we convert the other such that: "hello"+ 2 => "hello2"
-            if (isinstance(right, String) or isinstance(node, String)):
-                if isinstance(right, Primary) and isinstance(node, Primary):  
-                    right_str = repr(right)
-                    left_str = repr(node)
-
-                    node = String(left_str+right_str)
-                else:
-                    report(f"fInvalid string concatenation. Operands must be literals. received: '{right.type}' + '{node.type}' ")
-                    
-            else:
-                node = BinaryOp(node, "+", right, self.line_number)
-
-        while self.checkToken(TokenType.MINUS):
-            self.nextToken()
-            right = self.term()
-            node = BinaryOp(node, "-", right, self.line_number)
+            node = BinaryOp(node, operator, right, self.lineNumber)
 
         return node
 
@@ -638,7 +587,7 @@ class Parser:
             operator = self.currentToken.value
             self.nextToken()
             right = self.unary()
-            node = BinaryOp(node, operator, right, self.line_number)
+            node = BinaryOp(node, operator, right, self.lineNumber)
         return node
     
     # for ^ operator (exponentiation)
@@ -648,8 +597,12 @@ class Parser:
         while self.checkToken(TokenType.POW): 
             operator = self.currentToken.value
             self.nextToken()
-            right = self.unary()
-            node = BinaryOp(node, operator, right, self.line_number)
+            if self.checkToken(TokenType.NEWLINE):
+                right = Integer(2)
+            else: 
+                right = self.unary()
+            print(right)
+            node = BinaryOp(node, operator, right, self.lineNumber)
         
         return node
 
@@ -662,7 +615,7 @@ class Parser:
         
         node = self.primary()
         if operator:
-            node = UnaryOp(operator, node, self.line_number)
+            node = UnaryOp(operator, node, self.lineNumber)
             
         return node
 
@@ -671,36 +624,36 @@ class Parser:
         node = None
         # Integers
         if self.checkToken(TokenType.INTEGER):
-            node = Integer(value=int(self.currentToken.value), line=self.line_number)
+            node = Integer(value=int(self.currentToken.value), line=self.lineNumber)
             self.nextToken()
         
         # Floats
         elif self.checkToken(TokenType.FLOAT):
             try:
-                node = Float(float(self.currentToken.value), self.line_number)
+                node = Float(float(self.currentToken.value), self.lineNumber)
                 self.nextToken()
             except ValueError:
-                report(f"Invalid float value: {self.currentToken.value}", line=self.line_number, type="Syntax")
+                report(f"Invalid float value: {self.currentToken.value}", line=self.lineNumber, type="Syntax")
         
         # Booleans
         elif self.checkToken(TokenType.BOOLEAN):
             try:
                 value = "true" if self.currentToken.value == "true" else "false"
                 if value not in ["true",'false']:
-                    report(f"Invalid boolean value. Should be 'true' or 'false. Found: {self.currentToken.value}", line=self.line_number, type="Syntax")
-                node = Boolean(value, self.line_number)
+                    report(f"Invalid boolean value. Should be 'true' or 'false. Found: {self.currentToken.value}", line=self.lineNumber, type="Syntax")
+                node = Boolean(value, self.lineNumber)
                 self.nextToken()
             except ValueError:
-                report(f"Invalid float value: {self.currentToken.value}", line=self.line_number, type="Syntax")
+                report(f"Invalid float value: {self.currentToken.value}", line=self.lineNumber, type="Syntax")
         
         # Strings
         elif self.checkToken(TokenType.STRING):
-            node = String(self.currentToken.value, self.line_number)
+            node = String(self.currentToken.value, self.lineNumber)
             self.nextToken()
             
         # Null types
         elif self.checkToken(TokenType.NULL):
-            node = Null(self.line_number)
+            node = Null(self.lineNumber)
             self.nextToken()
        
         # Function calls
@@ -715,7 +668,7 @@ class Parser:
                 if self.checkToken(TokenType.COMMA):
                     self.match(TokenType.COMMA)
             self.match(TokenType.RPAREN)
-            node = FunctionCall(func_name, args, self.line_number)
+            node = FunctionCall(func_name, args, self.lineNumber)
        
         # Variable References
         elif self.checkToken(TokenType.IDENTIFIER):
@@ -725,12 +678,12 @@ class Parser:
             # x++ 
             if self.checkToken(TokenType.INCREMENT):
                 self.nextToken()
-                node = VariableUpdated(var_name, BinaryOp(VariableReference(var_name,line = self.line_number), '+', Integer(1)), self.line_number)
+                node = VariableUpdated(var_name, BinaryOp(VariableReference(var_name,line = self.lineNumber), '+', Integer(1)), self.lineNumber)
 
             # x-- 
             elif self.checkToken(TokenType.DECREMENT):
                 self.nextToken()
-                node = VariableUpdated(var_name, BinaryOp(VariableReference(var_name, line = self.line_number), '-', Integer(1)), self.line_number)
+                node = VariableUpdated(var_name, BinaryOp(VariableReference(var_name, line = self.lineNumber), '-', Integer(1)), self.lineNumber)
             
             # Method calls
             elif self.checkToken(TokenType.DOT):
@@ -744,11 +697,11 @@ class Parser:
                     if self.checkToken(TokenType.COMMA):
                         self.match(TokenType.COMMA)
                 self.match(TokenType.RPAREN, errorMsg=f"missing opening '(' parenthesis after function call: {method_name}")
-                varRef = VariableReference(var_name, line = self.line_number)
-                node = MethodCall(varRef, method_name, arguments, self.line_number)
+                varRef = VariableReference(var_name, line = self.lineNumber)
+                node = MethodCall(varRef, method_name, arguments, self.lineNumber)
             
             else:
-                node = VariableReference(var_name, line = self.line_number)
+                node = VariableReference(var_name, line = self.lineNumber)
         
         # ensure nested expressions are parsed correctly
         elif self.checkToken(TokenType.LPAREN):
@@ -758,7 +711,7 @@ class Parser:
         
         # catch-all
         else:
-            report(f"Unexpected token in expression: {repr(self.currentToken.value)} ", line=self.line_number, type="Syntax")
+            report(f"Unexpected token in expression: {repr(self.currentToken.value)} ", line=self.lineNumber, type="Syntax")
         
         return node 
     

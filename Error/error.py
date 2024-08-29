@@ -40,7 +40,6 @@ class Error(Exception):
     def __str__(self):
         return f"Error: {self.message}"
 
-
 class SyntaxError(Error):
     """Exception raised for syntax errors."""
     def __init__(self, message, line):
@@ -49,7 +48,6 @@ class SyntaxError(Error):
 
     def __str__(self):
         return f"SyntaxError: {self.message} at line {self.line}"
-
 
 class SemanticError(Error):
     """Exception raised for semantic errors."""
@@ -67,7 +65,6 @@ class TypeError(Error):
     def __str__(self):
         return f"TypeError: {self.message}"
 
-
 class UndefinedVariableError(Error):
     """Exception raised when a variable is used before it's defined."""
     def __init__(self, message):
@@ -76,4 +73,11 @@ class UndefinedVariableError(Error):
     def __str__(self):
         return f"UndefinedVariableError: {self.message}"
 
+class CompilationError(Error):
+    """Exception raised for all generator errors"""
+    def __init__(self, message):
+        super().__init__(message)
+
+    def __str__(self):
+        return f"CompilationError: {self.message}"
 

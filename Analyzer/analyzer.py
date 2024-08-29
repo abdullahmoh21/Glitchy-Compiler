@@ -24,10 +24,8 @@ class SemanticAnalyzer:
         try:
             self.ast.accept(self)
         except Exception as e:
-            raise SemanticError({e})     
+            raise SemanticError(e)     
         
-        print("\n\n")
-        self.symbol_table.print_table()
         return self.symbol_table
         
     def visit_program(self, node):
@@ -60,6 +58,7 @@ class SemanticAnalyzer:
                     name=node.name,
                     symbolType='variable',
                     variableData={
+                        'value': node.value,
                         'data_type':data_type,
                         'annotated': True if node.annotation is not None else False
                     }
@@ -67,7 +66,7 @@ class SemanticAnalyzer:
 
         elif isinstance(node, VariableUpdated):
             var = self.symbol_table.lookup(node.name)
-            if var is None or var['variable_data'] is None:
+            if var is None:
                 report(f"Variable '{node.name}' has not been defined.", type="Variable Update")
                 return
             
@@ -81,17 +80,22 @@ class SemanticAnalyzer:
                     report(f"Variable '{node.name}' expects type '{expected_type}' but got expression: '{node.value}' of type '{data_type}'", type="Type", line=node.line)
                     return
             
-            self.symbol_table.update(node.name, data_type)
+            self.symbol_table.update(node.name, data_type, node.value)
 
-        elif isinstance(node, VariableReference):                
-            if not self.symbol_table.lookup(node.name):
+        elif isinstance(node, VariableReference): 
+            symbol = self.symbol_table.lookup(node.name)               
+            if symbol is None:
                 report(f"Variable '{node.name}' (Line number: {node.line}) is used before it is defined.", type="Variable Reference")
                 return
             
             # set type tag so that expression types can be inferred directly without having to lookup value
-            var_type = self.symbol_table.get_type(node.name)
-            node.type = var_type
-            print(f"Variable {node.name} visited. Type set to: {var_type}")
+            if symbol.get('symbol_type') == 'variable':
+                var = symbol.get('variable_data')
+                node.type = var.get('data_type')
+                node.value = var.get('value')
+            elif symbol.get('symbol_type') == 'parameter':
+                type_str = self.symbol_table.getType(node.name)
+                node.type = type_str
     
     def visit_print(self, node):
         node.value.accept(self)
@@ -112,8 +116,8 @@ class SemanticAnalyzer:
             node.elseBlock.accept(self)
 
     def visit_while(self, node):
-        self.ensure_boolean_context(node.comparison)
         node.comparison.accept(self)
+        self.ensure_boolean_context(node.comparison)
         node.block.accept(self)
 
     def visit_input(self, node):
@@ -202,6 +206,8 @@ class SemanticAnalyzer:
         
     def visit_function_call(self, node):
         func_name = node.name
+        if func_name == 'typeof':
+            return self.handle_type_of(node)
         symbol = self.symbol_table.lookup(func_name)
         
         if symbol and 'function_data' in symbol:
@@ -211,9 +217,9 @@ class SemanticAnalyzer:
             return
         
         if node.arity != function.get('arity'):
-            report(f"Function '{func_name}' expects {function['arity']} arguments but received {node.arity} arguments", type="Node Call", line=node.line)
+            report(f"Function '{func_name}' expects {function['arity']} arguments but received {node.arity} arguments", type="Function Call", line=node.line)
         
-        for received_arg, expected_arg in zip(node.arguments, function.get('parameters')):
+        for received_arg, expected_arg in zip(node.args, function.get('parameters')):
             received_arg.value.accept(self)
             received_arg_type = received_arg.value.evaluateType()
             if received_arg_type != expected_arg.type:
@@ -223,25 +229,26 @@ class SemanticAnalyzer:
         node.type = function.get('return_type', None) 
            
     def visit_comparison(self, node):
+        self.promote_type(node)
         node.left.accept(self)
         node.right.accept(self)
-        self.check_type_compatibility(node.left, node.right, node.operator)
+        self.validate_operation(node)
     
-    # TODO: add illegal math op checks like x / 0
     def visit_binary_op(self, node):
+        self.promote_type(node)
         node.left.accept(self)
         node.right.accept(self)
-        self.check_type_compatibility(node.left, node.right, node.operator)
-        
+        self.validate_operation(node)
+    
     def visit_logical_op(self, node):
+        self.promote_type(node)
         node.left.accept(self)
         node.right.accept(self)
+        self.validate_operation(node)
         
-        self.check_type_compatibility(node.left, node.right, node.operator)
-        
-    def visit_unary(self, node):
-        node.operand.accept(self)
-        self.check_unary_type_compatibility(node.operand, node.operator)
+    def visit_unary_op(self, node):
+        node.left.accept(self)
+        self.check_unary_type_compatibility(node.left, node.operator)
         
     def visit_integer(self, node):
         pass
@@ -287,28 +294,119 @@ class SemanticAnalyzer:
             report(f"Unknown unary operator: {operator}", type="Type", line=operand.line)
             return
         
-    def check_type_compatibility(self, left, right, operator):
-        # TODO: add err for 'invalid' returned
+    def validate_operation(self, node):
+        left, right, operator = node.left, node.right, node.operator
         left_type = left.evaluateType()
         right_type = right.evaluateType()
+        
+        if operator == '+':
+            if left_type == 'string' or right_type == 'string':
+                concatenated_string = self.to_string(left, right, operator)
+                node.evaluatedString = concatenated_string
 
-        # Handle binary operations
-        if operator in ['/', '*', '+', '-']:
+            # Ensure both operands are of numeric types for addition
+            elif left_type not in ['integer', 'float'] or right_type not in ['integer', 'float']:
+                report(f"Illegal Binary operation: '{left_type}' '{operator}' '{right_type}'", type="Type", line=left.line)
+                
+        if operator in ['/', '*', '-', '%', '^']:
             if left_type not in ['integer', 'float'] or right_type not in ['integer', 'float']:
                 report(f"Illegal Binary operation: '{left_type}' '{operator}' '{right_type}'", type="Type", line=left.line)
+                
+            if operator == '^':
+                if left_type not in ['integer', 'float'] or right_type not in ['integer', 'float']:
+                    report(f"Invalid types for exponentiation: '{left_type}' '{operator}' '{right_type}'", type="Type", line=left.line)
+                
+                EXPONENT_CAP = 10**8
+                if isinstance(right.value, (Integer, Float)) and right.value.value > EXPONENT_CAP: # for variables with number nodes as value
+                    report(f"Exponent value exceeds allowed cap of 10^8", type="Math", line=left.line)
+                elif isinstance(right, (Integer, Float)) and right.value > EXPONENT_CAP: 
+                    report(f"Exponent value exceeds allowed cap of 10^8", type="Math", line=left.line)
 
         # Handle comparisons
         elif operator in ['==', '!=', '<', '<=', '>', '>=']:
             if left_type != right_type:
                 report(f"Type mismatch in comparison: '{left_type}' '{operator}' '{right_type}'", type="Type", line=left.line)
-            elif left_type not in ['integer', 'float']:
+            elif left_type not in ['integer', 'float', 'string']:
                 report(f"Invalid types for comparison: '{left_type}' '{operator}' '{right_type}'", type="Type", line=left.line)
+            elif left_type == 'string' and operator not in ['==','!=']:
+                report(f"Invalid operator for string comparison: '{operator}'. Only '==' and '!=' are supported for String comparisons ", type="Type", line=left.line)
+
 
         # Handle logical operations
         elif operator in ['&&', '||']:
             if left_type != 'boolean' or right_type != 'boolean':
                 report(f"Logical operation does not result in boolean: '{left_type}' '{operator}' '{right_type}'\n\t {left} {operator} {right}", type="Type Error", line=left.line)
+    
+    def promote_type(self, node, expr_type=None):
+        """Promote integers to floats in operations with floats"""
 
+        expr_type = expr_type or node.evaluateType()  # Pass to recursive calls so they know the type of overall expr
+        left_type = node.left.evaluateType()
+        right_type = node.right.evaluateType()
+
+        if expr_type == 'float':
+            if left_type == 'integer':
+                if isinstance(node.left, Integer):
+                    node.left = Float(float(node.left.value))
+                else:
+                    self.promote_type(node.left, expr_type)  
+                node.cached_type = None
+
+            if right_type == 'integer':
+                if isinstance(node.right, Integer):
+                    node.right = Float(float(node.right.value))
+                else:
+                    self.promote_type(node.right, expr_type)  
+                node.cached_type = None
+            
+        # TODO: better name
+    
+    def to_string(self, left, right, operator):
+        """Convert left and right operands to a concatenated string based on the operator."""
+        left_str = self._convert_operand_to_string(left)
+        right_str = self._convert_operand_to_string(right)
+        
+        if operator == '+':
+            return left_str + right_str
+        else:
+            report(f"Cannot have operator '{operator} in String Concatenation",type="Syntax", line = left.line)
+
+    def handle_type_of(self, node):
+        if node.arity != 1:
+            report(f"The typeof function expects only 1 argument. recieved: {node.arity}",type="Function Call",line=node.line)
+        
+        if self.symbol_table.lookup("typeof") is None:
+            self.symbol_table.addGlobalFunction(
+                name="typeof",
+                functionData={
+                    'return_type' : 'string'
+                }
+            )
+        
+        node.args[0].value.accept(self)
+        ty = node.args[0].value.evaluateType()
+        node.typeOfEval = ty 
+        node.type = 'string'
+        print(f"typeof evaluated to {ty}")
+     
+    def _convert_operand_to_string(self, operand):
+        """Convert an operand to string using repr() if it's a primary value."""
+        if isinstance(operand, BinaryOp):
+            return self.to_string(operand.left, operand.right, operand.operator)
+        elif operand.evaluateType() == 'string':
+            if isinstance(operand, VariableReference):
+                if hasattr(operand.value, 'evaluatedString'):   # ref to binary op
+                    return operand.value.evaluatedString
+                else:   
+                    string_node = operand.value     # ref to String node
+                    return string_node.value
+                
+            return operand.value
+        elif operand.evaluateType() in ['integer', 'float']:
+            return repr(operand.value)
+        else:
+            raise TypeError(f"Operand of type '{operand.evaluateType()}' cannot be printed")
+ 
     def ensure_boolean_context(self, node):
         expression_type = node.evaluateType()
         if expression_type != 'boolean':

@@ -53,7 +53,31 @@ class LLVMCodeGenerator:
         # scanf
         scanf_ty = ir.FunctionType(ir.IntType(32), [ir.PointerType(ir.IntType(8))], var_arg=True)
         ir.Function(self.module, scanf_ty, name="scanf")
-        
+
+        # double pow(double, double)
+        pow_ty = ir.FunctionType(ir.DoubleType(), [ir.DoubleType(), ir.DoubleType()])
+        ir.Function(self.module, pow_ty, name="pow")
+
+        # int pow(int, int)
+        pow_int_ty = ir.FunctionType(ir.IntType(32), [ir.IntType(32), ir.IntType(32)])
+        ir.Function(self.module, pow_int_ty, name="pow_int")
+
+        # strlen: size_t strlen(const char *)
+        strlen_ty = ir.FunctionType(ir.IntType(64), [ir.PointerType(ir.IntType(8))])
+        ir.Function(self.module, strlen_ty, name="strlen")
+
+        # strcmp: int strcmp(const char *, const char *)
+        strcmp_ty = ir.FunctionType(ir.IntType(32), [ir.PointerType(ir.IntType(8)), ir.PointerType(ir.IntType(8))])
+        ir.Function(self.module, strcmp_ty, name="strcmp")
+
+        # atoi: int atoi(const char *)
+        atoi_ty = ir.FunctionType(ir.IntType(32), [ir.PointerType(ir.IntType(8))])
+        ir.Function(self.module, atoi_ty, name="atoi")
+
+        # atof: double atof(const char *)
+        atof_ty = ir.FunctionType(ir.DoubleType(), [ir.PointerType(ir.IntType(8))])
+        ir.Function(self.module, atof_ty, name="atof")
+
     def visit_program(self, node):
         for statement in node.statements:
             statement.accept(self)
@@ -67,10 +91,12 @@ class LLVMCodeGenerator:
     def visit_variable(self, node):
         if isinstance(node, VariableDeclaration):
             mangled_name = self.symbol_table.getMangledName(node.name)
+            if mangled_name is None:
+                mangled_name = node.name
             value = node.value.accept(self)
             var_type = value.type
 
-            # Allocate space for the variable within the current function (likely main)
+            # Allocate space for the variable within the current function
             local_var = self.builder.alloca(var_type, name=mangled_name)
             self.builder.store(value, local_var)
             self.symbol_table.setReference(node.name, local_var)
@@ -114,6 +140,8 @@ class LLVMCodeGenerator:
             format_str_name = "format_bool"
         elif expr_type == 'string':
             format_str_name = "format_string"
+        elif isinstance(node, BinaryOp) and hasattr(node, evaluatedString) and node.evaluatedString is not None:
+            format_str_name = "format_string"   # string concatenations 
         else:
             raise Exception(f"Unsupported expression type: {expr_type}")
 
@@ -201,7 +229,7 @@ class LLVMCodeGenerator:
         print(f"While Cond Block terminated: {self.builder.block.is_terminated}")
 
         self.builder.position_at_end(while_body_block)
-        node.block.accept(self)  # This will include 'if' statements
+        node.block.accept(self)  
         
         if not self.builder.block.is_terminated:
             self.builder.branch(while_cond_block)  # Recheck the condition after each loop
@@ -260,14 +288,14 @@ class LLVMCodeGenerator:
             self.builder.ret(return_value)
 
     def visit_function_call(self, node):
+        if node.name == 'typeof':   #typeOf's are evaluated in analyzer so simply replace with a tring
+            return self.visit_string(String(node.typeOfEval))
+        
         func = self.module.get_global(node.name)
-        
         args = [arg.value.accept(self) for arg in node.arguments]
-        
         call_result = self.builder.call(func, args)
         
         return_type_str = self.symbol_table.getFunctionType(node.name)
-        
         return_type = self.get_ir_type(return_type_str)
         
         if return_type != ir.VoidType():
@@ -304,27 +332,68 @@ class LLVMCodeGenerator:
         self.symbol_table.setReference(node.varRef.name, alloca)
 
     def visit_binary_op(self, node):
-        left = node.left.accept(self)       # Evaluate the left operand
-        right = node.right.accept(self)     # Evaluate the right operand
+        # String concatenations are also BinaryOp's but they are evaluated in analyzer
+        if node.evaluatedString is not None:
+            return self.visit_string(String(node.evaluatedString, node.line))
+        
+        left = node.left.accept(self)
+        right = node.right.accept(self)
+        print(f"Left literal: {left}\nRight Literal: {right}\n")
+        
+        left_type = left.type
+        right_type = right.type
+        result = None
+        if left_type == ir.DoubleType() or right_type == ir.DoubleType():
+            if node.operator == '+':
+                result = self.builder.fadd(left, right)
+            elif node.operator == '-':
+                result = self.builder.fsub(left, right)
+            elif node.operator == '*':
+                result = self.builder.fmul(left, right)
+            elif node.operator == '/':
+                result = self.builder.fdiv(left, right)
+            elif node.operator == '%':
+                result = self.builder.frem(left, right)
+            elif node.operator == '^':
+                pass
+            else:
+                raise CompilationError(f"Unknown operator for floats: {node.operator}")
 
-        if node.operator == '+':
-            result = self.builder.add(left, right)
-        elif node.operator == '-':
-            result = self.builder.sub(left, right)
-        elif node.operator == '*':
-            result = self.builder.mul(left, right)
-        elif node.operator == '/':
-            result = self.builder.sdiv(left, right)
+        elif left_type == ir.IntType() or right_type == ir.IntType():
+            if node.operator == '+':
+                result = self.builder.add(left, right)
+            elif node.operator == '-':
+                result = self.builder.sub(left, right)
+            elif node.operator == '*':
+                result = self.builder.mul(left, right)
+            elif node.operator == '/':
+                result = self.builder.sdiv(left, right)
+            elif node.operator == '%':
+                result = self.builder.srem(left, right)
+            elif node.operator == '^':
+                pass
+
+            else:
+                raise CompilationError(f"Unknown operator for integers: {node.operator}")
+
         else:
-            raise ValueError(f"Unknown operator: {node.operator}")
+            raise CompilationError(f"Cannot perform operation on differing or unsupported types: {type(node.left)} and {type(node.right)}")
 
-        return result  
+        return result
 
+    # TODO: test '!' support
     def visit_unary_op(self, node):
         operand = node.left.accept(self)  
 
         if node.operator == '-':
-            result = self.builder.neg(operand)
+            if operand.type == ir.DoubleType():
+                result = self.builder.fneg(operand)
+            elif operand.type == ir.IntType():
+                result = self.builder.neg(operand)
+            else:
+                raise CompilationError(f"Unknown operand for unary operation: {node.operand}")
+        elif node.operator == '!':
+            result = self.builder.not_(operand)
         elif node.operator == '+':
             result = operand
         else:
@@ -337,7 +406,15 @@ class LLVMCodeGenerator:
         right = node.right.accept(self)  
 
         if node.operator == '==':
-            result = self.builder.icmp_signed('==', left, right)
+            if node.left.evaluateType() == 'string':
+                print(f"left type is: {left.type} right type is: {right.type}")
+                strcmp_func = self.module.globals['strcmp']
+                
+                strcmp_result = self.builder.call(strcmp_func, [left, right])
+                result = self.builder.icmp_signed('==', strcmp_result, ir.Constant(ir.IntType(32), 0))  # strcmp returns 0 if strings are equal
+
+            else:
+                result = self.builder.icmp_signed('==', left, right)
         elif node.operator == '!=':
             result = self.builder.icmp_signed('!=', left, right)
         elif node.operator == '<':
@@ -369,25 +446,29 @@ class LLVMCodeGenerator:
     def visit_integer(self, node):
         return ir.Constant(ir.IntType(32), node.value)
 
+    # rename to double
     def visit_float(self, node):
-        return ir.Constant(ir.FloatType(), node.value)
+        return ir.Constant(ir.DoubleType(), node.value)
 
     def visit_boolean(self, node):
         return ir.Constant(ir.IntType(1), node.value)
 
     def visit_string(self, node):
-            str_val = bytearray(node.value.encode("utf8")) + b"\0"
-            str_constant = ir.Constant(ir.ArrayType(ir.IntType(8), len(str_val)), str_val)
+        str_val = bytearray(node.value.encode("utf8")) + b"\0"
+        str_constant = ir.Constant(ir.ArrayType(ir.IntType(8), len(str_val)), str_val)
 
-            # Generate a unique name using the counter
-            unique_name = f"str_{self.string_counter}"
-            self.string_counter += 1
+        # Generate a unique name using the counter
+        unique_name = f"str_{self.string_counter}"
+        self.string_counter += 1
 
-            str_var = ir.GlobalVariable(self.module, str_constant.type, name=unique_name)
-            str_var.global_constant = True
-            str_var.initializer = str_constant
+        # Allocate space for the string on the stack (local variable) with a mangled name
+        str_var = self.builder.alloca(str_constant.type, name=unique_name)
+        self.builder.store(str_constant, str_var)
 
-            return self.builder.bitcast(str_var, ir.PointerType(ir.IntType(8)))
+        # Get a pointer to the first element of the array
+        str_ptr = self.builder.gep(str_var, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 0)])
+
+        return self.builder.bitcast(str_ptr, ir.PointerType(ir.IntType(8)))
 
     def visit_null(self, node):
         return ir.Constant(ir.IntType(32), None)

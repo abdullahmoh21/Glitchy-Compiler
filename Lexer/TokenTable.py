@@ -4,12 +4,14 @@ class Token:
     def __init__(self, type, value):
         self.type = type      # type of the token
         self.value = value    # value of the token
-
+        self.value = value    # value of the token
+        
+    
     # Returns a string representation of the keyword or null if it's not a keyword.
     @staticmethod
     def checkIfKeyword(tokenText):
         for type in TokenType:
-            # Relies on all keyword enum values being 1XX.
+            # keyword enum values are 1XX.
             if type.name.lower() == tokenText and 100 <= type.value < 200:
                 return type
         return None
@@ -17,7 +19,6 @@ class Token:
     @staticmethod
     def checkIfLogicalOperator(tokenText):
         for type in TokenType:
-            # Relies on all keyword enum values being 4XX.
             if type.name.lower() == tokenText and 400 <= type.value < 500:
                 return type
         return None

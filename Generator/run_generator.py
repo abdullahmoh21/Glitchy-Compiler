@@ -9,32 +9,13 @@ from ctypes import CFUNCTYPE, c_void_p
 
 def main():
     source_code = """ 
-    function is_prime(n) {
-        if (n <= 1) {
-            return false
+        if (typeof(10) == "integer"){
+            print("the type is an int! BHENCHOD!!!!!")
+        } else{
+            print("Unfortunately that is not an Int :(")
         }
-        for (i = 2; i < n; i++) {
-            if (n % i == 0) {
-                return false
-            }
-        }
-        return true
-    }
-
-    set num = 17
-    if (is_prime(num)) {
-        print(num + " is a prime number")
-    } else {
-        print(num + " is not a prime number")
-    }
-        
     """
-
-
-   
-
-
-
+        
     lexer = Lexer(source_code)
     parser = Parser(lexer)
     ast = parser.parse()
@@ -42,16 +23,16 @@ def main():
         return
 
     print("Parsing completed!")
-    print("\nThe following AST was returned:\n")
-    ast.print_content()
-
+    
     analyzer = SemanticAnalyzer(ast)
     symbol_table = analyzer.analyze()
-    if symbol_table is None:
-        print("Error occurred during semantic analysis. Aborting...")
-        return
-
-    print("Semantic analysis completed!")
+    if symbol_table is not None:
+        print("Semantic analysis completed!")
+    
+    print("\nThe following AST was returned:\n")
+    ast.print_content()
+    print("\nThe following Symbol table was returned:\n")
+    symbol_table.print_table()
 
     llvm_code_generator = LLVMCodeGenerator(symbol_table)
 
