@@ -1,13 +1,11 @@
 from Lexer import Lexer
 from Parser import Parser
 from Analyzer import SemanticAnalyzer
-from Error import error
+from utils import error
 
 def main():
     source_code = """
-        if (typeof(10) == "integer"){
-            print("the type is an int! BHENCHOD!!!!!")
-        }
+    print("your input: "+z)
     """
 
 
@@ -15,15 +13,16 @@ def main():
     lexer = Lexer(source_code)
     parser = Parser(lexer)
     ast = parser.parse()
+    if ast:
+        print("\nParser returned:")
+        ast.print_content()
 
     # Run semantic analysis
     analyzer = SemanticAnalyzer(ast)
     symbol_table = analyzer.analyze()
-    if error.has_error_occurred() or symbol_table is None:
-        print("Analyzer found an error")
-    else:
+    if not (error.has_error_occurred() or symbol_table is None):
         print("Analyzing completed")
-        print("\nThe following AST was returned:\n")
+        print("\nAnalyzer returned:\n")
         ast.print_content()
         print("\nThe following Symbol table was returned:\n")
         symbol_table.print_table()

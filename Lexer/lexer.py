@@ -1,6 +1,6 @@
 import sys
 from .TokenTable import Token, TokenType
-from Error import report
+from utils import error
 
 class Lexer:
     def __init__(self, source): 
@@ -168,16 +168,16 @@ class Lexer:
             
             token = Token(TokenType.STRING, stringValue)
         
-        # INTEGERS AND FLOATS  
+        # INTEGERS AND DOUBLES  
         elif self.currentChar.isdigit():
             # parse number
             startPos = self.currentPos
-            is_float = False
+            is_double = False
             while self.peek().isdigit():
                 self.nextChar()
             if self.peek() == '.':
                 self.nextChar()
-                is_float = True
+                is_double = True
                 if not self.peek().isdigit():
                     message = f"(Lexer) Illegal character in number: {self.peek()}"
                     report(message, type="Syntax", line=self.lineNumber)
@@ -185,16 +185,16 @@ class Lexer:
                     self.nextChar()
             # Extract the number as a string
             number_str = self.source[startPos:self.currentPos + 1]
-            if is_float:
+            if is_double:
                 try:
-                    is_float = False
-                    # Convert to float
+                    is_double = False
+                    # Convert to double
                     number = float(number_str)
                 except ValueError:
                     # Handle conversion error
-                    message = f"(Lexer) Invalid float format: {number_str}"
+                    message = f"(Lexer) Invalid double format: {number_str}"
                     report(message, type="Syntax", line=self.lineNumber)
-                token = Token(TokenType.FLOAT, number)
+                token = Token(TokenType.DOUBLE, number)
             else:
                 try:
                     # Convert to integer
@@ -255,9 +255,9 @@ class Lexer:
                     number = float(number_str)
                 except ValueError:
                     number = 0.0 
-                    message = f"(Lexer) Invalid float format: {number_str}"
+                    message = f"(Lexer) Invalid double format: {number_str}"
                     report(message, type="Syntax", line=self.lineNumber)  # report() will stop further stages. 
-                token = Token(TokenType.FLOAT, number)
+                token = Token(TokenType.DOUBLE, number)
             else:
                 token = Token(TokenType.DOT, self.currentChar)
         elif self.currentChar == ',':

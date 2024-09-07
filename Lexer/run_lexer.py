@@ -2,21 +2,10 @@ from .lexer import *
 import sys
 import os
 
-#  eventually this will be the main function, that includes bash scripting to exec out.c
 def main():
-    print("Glitchy Lexer")
-
-    if len(sys.argv) != 2:
-        sys.exit("Error: Compiler needs source file as argument.")
-    
-    # Change the working directory to the script's directory
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    os.chdir(script_dir)
-        
-    
-    with open(f"{sys.argv[1]}", 'r') as inputFile:
-        source = inputFile.read()
-        
+    source = """ 
+        print("your input: "+input())
+    """
         
     # Initialize the lexer and print generated tokens.
     lexer = Lexer(source)

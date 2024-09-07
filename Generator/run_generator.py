@@ -9,11 +9,8 @@ from ctypes import CFUNCTYPE, c_void_p
 
 def main():
     source_code = """ 
-        if (typeof(10) == "integer"){
-            print("the type is an int! BHENCHOD!!!!!")
-        } else{
-            print("Unfortunately that is not an Int :(")
-        }
+        set in = input()
+        print(in.length())
     """
         
     lexer = Lexer(source_code)
@@ -22,17 +19,19 @@ def main():
     if ast is None:
         return
 
-    print("Parsing completed!")
+    print(f"Parsing completed!\nParser returned:\n{ast.print_content()}")
+    
     
     analyzer = SemanticAnalyzer(ast)
     symbol_table = analyzer.analyze()
     if symbol_table is not None:
         print("Semantic analysis completed!")
-    
-    print("\nThe following AST was returned:\n")
-    ast.print_content()
-    print("\nThe following Symbol table was returned:\n")
-    symbol_table.print_table()
+        print("\nThe following AST was returned:\n")
+        ast.print_content()
+        print("\nThe following Symbol table was returned:\n")
+        symbol_table.print_table()
+    else:
+        print("No symbol table returned from analyzer")
 
     llvm_code_generator = LLVMCodeGenerator(symbol_table)
 
@@ -41,9 +40,17 @@ def main():
         print("Error occurred during code generation. Aborting...")
         return 
     
+    try:
+        mod = llvm.parse_assembly(str(llvm_ir))
+        mod.verify()
+        print("\nLLVM IR verification succeeded!")
+    except Exception as e:
+        print(f"LLVM verification failed: {e}")
+        return
+    
     print("\nThe following LLVM IR code was generated:\n")
     print("---------------------------------------")
-    print(str(llvm_ir))
+    print(str(llvm_ir))  # This should be safer now if IR is valid
     print("---------------------------------------")
     
     llvm.initialize()
@@ -52,26 +59,6 @@ def main():
 
     target = llvm.Target.from_default_triple()
     target_machine = target.create_target_machine()
-
-    # Parse the generated LLVM IR
-    mod = llvm.parse_assembly(str(llvm_ir))
-    mod.verify()
-
-    # # Apply optimization passes using a standard optimization level
-    # pmb = llvm.create_pass_manager_builder()
-    # pmb.opt_level = 3  # Optimization level 3 is a good default for aggressive optimizations
-
-    # pass_manager = llvm.create_module_pass_manager()
-    # pmb.populate(pass_manager)
-
-    # pass_manager.run(mod)
-
-    # # Print optimized LLVM IR
-    # print("\nThe following optimized LLVM IR code was generated:\n")
-    # print("---------------------------------------")
-    # print(str(mod))
-    # print("---------------------------------------")
-    
 
     with llvm.create_mcjit_compiler(mod, target_machine) as engine:
         engine.finalize_object()

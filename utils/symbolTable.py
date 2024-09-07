@@ -77,7 +77,6 @@ class SymbolTable:
             'parameter_data': None             
         }
 
-
     def inScope(self, name):
         current_scope_dict = self.scopes[self.current_scope_index][1]
         return current_scope_dict.get(name, None)

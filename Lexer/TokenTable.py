@@ -4,8 +4,6 @@ class Token:
     def __init__(self, type, value):
         self.type = type      # type of the token
         self.value = value    # value of the token
-        self.value = value    # value of the token
-        
     
     # Returns a string representation of the keyword or null if it's not a keyword.
     @staticmethod
@@ -33,7 +31,7 @@ class TokenType(Enum):
     IDENTIFIER = 3
     STRING = 4
     NULL = 5
-    FLOAT = 6
+    DOUBLE = 6
     # Punctuation.
     LBRACE = 7      # {
     RBRACE = 8      # }
@@ -48,22 +46,21 @@ class TokenType(Enum):
     # Keywords.
     WHILE = 101
     FUNCTION = 102
-    PRINT = 103  
-    INPUT = 104
-    SET = 105    
-    IF = 106
-    ELSE = 107
-    ELIF = 108
-    FOR = 109
-    RETURN = 110
-    GLITCH = 111
+    SET = 103  
+    IF = 104
+    ELSE = 105
+    ELIF = 106
+    FOR = 107
+    RETURN = 108
+    BREAK = 109
+    GLITCH = 110
     # -------------------------------- #
     # Operators.
-    EQ = 301        # =
-    PLUS = 302
-    MINUS = 303
-    ASTERISK = 304
-    SLASH = 305
+    EQ = 301            # =
+    PLUS = 302          # +
+    MINUS = 303         # -    
+    ASTERISK = 304      # *
+    SLASH = 305         # /
     MODUlO = 306        # %
     POW = 307           # ^
     EQEQ = 308          # ==

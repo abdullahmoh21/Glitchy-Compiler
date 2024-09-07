@@ -1,7 +1,7 @@
-from Error import *
-from Ast import *
+from utils import *
 import llvmlite.ir as ir
 import llvmlite.binding as llvm
+
 
 class LLVMCodeGenerator:
     def __init__(self, symbol_table):
@@ -9,79 +9,43 @@ class LLVMCodeGenerator:
         self.module.globals = {}
         self.builder = None
         self.function = None
-        self.symbol_table = symbol_table
         self.string_counter = 0  
-        self.declare_globals()
+        self.symbol_table = symbol_table
+        self.current_after_while_block = None
+        self.builtin_dispatcher = {
+            'input': self.input_builtin,
+            'print': self.print_builtin,  
+        }
 
     def generate_code(self, node):
         if has_error_occurred():
             return None
 
-        # Create the main function and its entry block
+        # main function
         func_type = ir.FunctionType(ir.VoidType(), [])
         self.function = ir.Function(self.module, func_type, name="main")
         block = self.function.append_basic_block(name="entry")
         self.builder = ir.IRBuilder(block)
 
-        # Generate code for the AST
-        node.accept(self)
+        try:
+            node.accept(self)
+        except ExitSignal:
+            return
 
         if not self.builder.block.is_terminated:
             self.builder.ret_void()
 
-
         return self.module
 
-    def declare_globals(self):
-        format_strings = {
-            "format_int": "%d\n\0",
-            "format_float": "%f\n\0",
-            "format_bool": "%d\n\0",
-            "format_string": "%s\n\0"
-        }
-
-        for name, fmt in format_strings.items():
-            c_format_str = ir.Constant(ir.ArrayType(ir.IntType(8), len(fmt)), bytearray(fmt.encode("utf8")))
-            format_global = ir.GlobalVariable(self.module, c_format_str.type, name=name)
-            format_global.global_constant = True
-            format_global.initializer = c_format_str
-        
-        # printf
-        printf_ty = ir.FunctionType(ir.IntType(32), [ir.PointerType(ir.IntType(8))], var_arg=True)
-        ir.Function(self.module, printf_ty, name="printf")
-
-        # scanf
-        scanf_ty = ir.FunctionType(ir.IntType(32), [ir.PointerType(ir.IntType(8))], var_arg=True)
-        ir.Function(self.module, scanf_ty, name="scanf")
-
-        # double pow(double, double)
-        pow_ty = ir.FunctionType(ir.DoubleType(), [ir.DoubleType(), ir.DoubleType()])
-        ir.Function(self.module, pow_ty, name="pow")
-
-        # int pow(int, int)
-        pow_int_ty = ir.FunctionType(ir.IntType(32), [ir.IntType(32), ir.IntType(32)])
-        ir.Function(self.module, pow_int_ty, name="pow_int")
-
-        # strlen: size_t strlen(const char *)
-        strlen_ty = ir.FunctionType(ir.IntType(64), [ir.PointerType(ir.IntType(8))])
-        ir.Function(self.module, strlen_ty, name="strlen")
-
-        # strcmp: int strcmp(const char *, const char *)
-        strcmp_ty = ir.FunctionType(ir.IntType(32), [ir.PointerType(ir.IntType(8)), ir.PointerType(ir.IntType(8))])
-        ir.Function(self.module, strcmp_ty, name="strcmp")
-
-        # atoi: int atoi(const char *)
-        atoi_ty = ir.FunctionType(ir.IntType(32), [ir.PointerType(ir.IntType(8))])
-        ir.Function(self.module, atoi_ty, name="atoi")
-
-        # atof: double atof(const char *)
-        atof_ty = ir.FunctionType(ir.DoubleType(), [ir.PointerType(ir.IntType(8))])
-        ir.Function(self.module, atof_ty, name="atof")
-
     def visit_program(self, node):
-        for statement in node.statements:
-            statement.accept(self)
-
+        try:
+            for statement in node.statements:
+                statement.accept(self)
+        except ExitSignal:
+            return
+        except Exception as e:
+            throw(CompilationError(f"An unknown error occurred during code generation. {e}"))
+            
     def visit_block(self, node):
         self.symbol_table.enterScope()
         for statement in node.statements:
@@ -104,12 +68,12 @@ class LLVMCodeGenerator:
         elif isinstance(node, VariableUpdated):
             mangled_name = self.symbol_table.getMangledName(node.name)
             if mangled_name is None:
-                raise Error("Could not retrieve mangled name from symbol table")
+                throw(Error("Could not retrieve mangled name from symbol table"))
             value = node.value.accept(self)
 
             local_var = self.symbol_table.getReference(node.name)
             if local_var is None:
-                raise Error(f"Variable '{node.name}' referenced before declaration or update")
+                throw(Error(f"Variable '{node.name}' referenced before declaration or update"))
             
             self.builder.store(value, local_var)
 
@@ -120,7 +84,7 @@ class LLVMCodeGenerator:
 
             reference = self.symbol_table.getReference(node.name)
             if reference is None:
-                raise Error(f"Variable '{node.name}' referenced before declaration")
+                throw(Error(f"Variable '{node.name}' referenced before declaration"))
 
             if isinstance(reference, ir.AllocaInstr):
                 return self.builder.load(reference, name=mangled_name)
@@ -128,53 +92,33 @@ class LLVMCodeGenerator:
                 # For function parameters
                 return reference
             
-    def visit_print(self, node):
-        expr_value = node.value.accept(self)
-        expr_type = node.value.evaluateType()
-        
-        if expr_type == 'integer':
-            format_str_name= "format_int"
-        elif expr_type == 'float':
-            format_str_name = "format_float"
-        elif expr_type == 'bool':
-            format_str_name = "format_bool"
-        elif expr_type == 'string':
-            format_str_name = "format_string"
-        elif isinstance(node, BinaryOp) and hasattr(node, evaluatedString) and node.evaluatedString is not None:
-            format_str_name = "format_string"   # string concatenations 
-        else:
-            raise Exception(f"Unsupported expression type: {expr_type}")
-
-        # Get the global format string pointer
-        fmt_ptr = self.builder.bitcast(self.module.get_global(format_str_name), ir.PointerType(ir.IntType(8)))
-
-        # Retrieve the printf function
-        printf = self.module.get_global('printf')
-
-        # Handle different types for printf
-        if expr_type in ['integer', 'bool', 'float']:
-            # Print the value directly
-            self.builder.call(printf, [fmt_ptr, expr_value])
-        elif expr_type == 'string':
-            expr_value = self.builder.bitcast(expr_value, ir.PointerType(ir.IntType(8)))
-            self.builder.call(printf, [fmt_ptr, expr_value])
-        else:
-            raise Exception(f"Unsupported print type: {expr_type}")
-
     def visit_if(self, node):
         cond_val = node.comparison.accept(self)
 
         if_true_block = self.builder.append_basic_block(name="if_true_branch")
         if_false_block = self.builder.append_basic_block(name="if_false_branch")
-        end_block = self.builder.append_basic_block(name="end")
+        
+        needs_merge_block = False  # Track if we need a merge block
+        merge_block = None  # Define merge block only when needed
 
         self.builder.cbranch(cond_val, if_true_block, if_false_block)
+
+        def insertNop():
+            if self.builder.block.is_terminated and len(self.builder.block.instructions) == 1:
+                self.builder.comment("Nop")
+                zero = ir.Constant(ir.IntType(32), 0)
+                self.builder.position_before(self.builder.block.instructions[0])
+                self.builder.add(zero, zero)
 
         # True Branch
         self.builder.position_at_end(if_true_block)
         node.block.accept(self)
+        insertNop()
         if not self.builder.block.is_terminated:
-            self.builder.branch(end_block)
+            needs_merge_block = True
+            if not merge_block:
+                merge_block = self.builder.append_basic_block(name="if_merge")
+            self.builder.branch(merge_block)
 
         # False Branch / Elif / Else Handling
         self.builder.position_at_end(if_false_block)
@@ -190,57 +134,84 @@ class LLVMCodeGenerator:
 
                 self.builder.position_at_end(elif_true_block)
                 elif_node[1].accept(self)
+                insertNop()
                 if not self.builder.block.is_terminated:
-                    self.builder.branch(end_block)
+                    needs_merge_block = True
+                    if not merge_block:
+                        merge_block = self.builder.append_basic_block(name="if_merge")
+                    self.builder.branch(merge_block)
 
                 self.builder.position_at_end(elif_false_block)
 
             # Handle the final `else` block if it exists
             if node.elseBlock is not None:
                 node.elseBlock.accept(self)
+                insertNop()
                 if not self.builder.block.is_terminated:
-                    self.builder.branch(end_block)
+                    needs_merge_block = True
+                    if not merge_block:
+                        merge_block = self.builder.append_basic_block(name="if_merge")
+                    self.builder.branch(merge_block)
             else:
-                self.builder.branch(end_block)
+                insertNop()
+                if not self.builder.block.is_terminated:
+                    needs_merge_block = True
+                    if not merge_block:
+                        merge_block = self.builder.append_basic_block(name="if_merge")
+                    self.builder.branch(merge_block)
 
         elif node.elseBlock is not None:
             # Directly handle the else block if there are no elifs
             node.elseBlock.accept(self)
+            insertNop()
             if not self.builder.block.is_terminated:
-                self.builder.branch(end_block)
+                needs_merge_block = True
+                if not merge_block:
+                    merge_block = self.builder.append_basic_block(name="if_merge")
+                self.builder.branch(merge_block)
         else:
-            self.builder.branch(end_block)
+            insertNop()
+            if not self.builder.block.is_terminated:
+                needs_merge_block = True
+                if not merge_block:
+                    merge_block = self.builder.append_basic_block(name="if_merge")
+                self.builder.branch(merge_block)
 
-        # Final End Block
-        self.builder.position_at_end(end_block)
-
+        # Final Merge Block
+        if needs_merge_block:
+            self.builder.position_at_end(merge_block)
+    
     def visit_while(self, node):
         while_cond_block = self.builder.append_basic_block(name="while_cond")
         while_body_block = self.builder.append_basic_block(name="while_body")
         after_while_block = self.builder.append_basic_block(name="after_while")
-
-        print(f"Before While Cond Block terminated: {self.builder.block.is_terminated}")
+        
+        # for break statements 
+        previous_after_while_block = self.current_after_while_block
+        self.current_after_while_block = after_while_block
 
         self.builder.branch(while_cond_block)
 
         self.builder.position_at_end(while_cond_block)
         cond_val = node.comparison.accept(self)
         self.builder.cbranch(cond_val, while_body_block, after_while_block)
-        print(f"While Cond Block terminated: {self.builder.block.is_terminated}")
 
         self.builder.position_at_end(while_body_block)
         node.block.accept(self)  
         
         if not self.builder.block.is_terminated:
             self.builder.branch(while_cond_block)  # Recheck the condition after each loop
-        print(f"While Body Block terminated: {self.builder.block.is_terminated}")
-
+    
         self.builder.position_at_end(after_while_block)
-        print(f"After While Block terminated: {self.builder.block.is_terminated}")
-        
+        self.current_after_while_block = previous_after_while_block
+    
+    def visit_break(self, node):
+        after_while_block = self.current_after_while_block
+        self.builder.branch(after_while_block)
+    
     def visit_function_declaration(self, function):
-        return_type = self.get_ir_type(function.return_type)
-        param_types = [self.get_ir_type(param.type) for param in function.parameters]
+        return_type = self.getIrType(function.return_type)
+        param_types = [self.getIrType(param.type) for param in function.parameters]
         func_type = ir.FunctionType(return_type, param_types)
         
         func = ir.Function(self.module, func_type, name=function.name)
@@ -257,19 +228,13 @@ class LLVMCodeGenerator:
         self.builder.position_at_end(entry_block)
 
         for statement in function.block.statements:
-            if isinstance(statement, Return):
-                return_value = statement.value.accept(self)
-
-                if isinstance(return_value.type, ir.PointerType):
-                    return_value = self.builder.load(return_value)
-
-                if return_value.type != return_type:
-                    raise TypeError(f"Return type mismatch: expected {return_type}, got {return_value.type}")
-                if not self.builder.block.is_terminated:
-                    self.builder.ret(return_value)
+            statement.accept(self)
+        
+        if not self.builder.block.is_terminated:
+            if func.ftype.return_type == ir.VoidType():
+                self.builder.ret_void()
             else:
-                statement.accept(self)
-            
+                pass
         self.symbol_table.exitScope()
 
         # reset builders pointer to main function 
@@ -279,71 +244,75 @@ class LLVMCodeGenerator:
             self.builder = ir.IRBuilder(main_block)
 
     def visit_return(self, node):
-        return_value = node.value.accept(self)
+        if not isinstance(node.value, Null):
+            return_value = node.value.accept(self)
+            if return_value.is_pointer:
+                return_value = self.builder.load(return_value)
 
-        if isinstance(return_value.type, ir.PointerType):
-            return_value = self.builder.load(return_value)
+        # if return_value.type != return_type:
+        #     throw(TypeError(f"Return type mismatch: expected {return_type}, got {return_value.type}"))
 
-        if not self.builder.block.is_terminated:
-            self.builder.ret(return_value)
+            if not self.builder.block.is_terminated:
+                self.builder.ret(return_value)
+        else:
+            if not self.builder.block.is_terminated:
+                self.builder.ret_void()
 
     def visit_function_call(self, node):
-        if node.name == 'typeof':   #typeOf's are evaluated in analyzer so simply replace with a tring
-            return self.visit_string(String(node.typeOfEval))
+        if node.name in self.builtin_dispatcher:
+            return self.builtin_dispatcher[node.name](node)
         
         func = self.module.get_global(node.name)
-        args = [arg.value.accept(self) for arg in node.arguments]
+        args = [arg.value.accept(self) for arg in node.args]
         call_result = self.builder.call(func, args)
         
         return_type_str = self.symbol_table.getFunctionType(node.name)
-        return_type = self.get_ir_type(return_type_str)
+        return_type = self.getIrType(return_type_str)
         
         if return_type != ir.VoidType():
             return call_result
         else:
             return None
         
-    def visit_input(self, node):
-        # Declare the format string for scanf if it doesn't already exist
-        format_str = "%s\0"
-        format_str_name = "format_scanf"
-        try:
-            c_format_str_global = self.module.get_global(format_str_name)
-        except KeyError:
-            c_format_str = ir.Constant(ir.ArrayType(ir.IntType(8), len(format_str)), bytearray(format_str.encode("utf8")))
-            c_format_str_global = ir.GlobalVariable(self.module, c_format_str.type, name=format_str_name)
-            c_format_str_global.linkage = 'internal'
-            c_format_str_global.global_constant = True
-            c_format_str_global.initializer = c_format_str
-
-        fmt_ptr = self.builder.bitcast(c_format_str_global, ir.PointerType(ir.IntType(8)))
-
-        # Allocate space for the input string on the stack
-        alloca = self.builder.alloca(ir.ArrayType(ir.IntType(8), 256), name=node.varRef.name)  # 256-byte buffer
-        str_ptr = self.builder.bitcast(alloca, ir.PointerType(ir.IntType(8)))
-
-        # Get the scanf function
-        scanf = self.module.get_global('scanf')
-
-        # Call scanf with the format string and the allocated space
-        self.builder.call(scanf, [fmt_ptr, str_ptr])
-
-        # Store the pointer to the input string in the variable's allocation
-        self.symbol_table.setReference(node.varRef.name, alloca)
-
-    def visit_binary_op(self, node):
-        # String concatenations are also BinaryOp's but they are evaluated in analyzer
-        if node.evaluatedString is not None:
-            return self.visit_string(String(node.evaluatedString, node.line))
+    def visit_method_call(self, node):
+        if isinstance(node.receiver, MethodCall):
+            result = self.visit_method_call(node.receiver)
+        else:
+            result = node.receiver.accept(self)
         
+        method = MethodTable.get(node.receiverTy, node.name)
+        if method is None:
+            throw(CompilationError(f"Method '{node.name}' does not exist for type '{node.receiverTy}'"))
+        
+        method_name = f"{node.name}_call"
+        if method_name in self.__class__.__dict__:
+            return getattr(self, method_name)(node, result)
+        else:
+            throw(NotImplementedError(f"Method '{method_name}' is not implemented in the generator."))
+    
+    def visit_binary_op(self, node):
         left = node.left.accept(self)
         right = node.right.accept(self)
-        print(f"Left literal: {left}\nRight Literal: {right}\n")
-        
         left_type = left.type
         right_type = right.type
+        
         result = None
-        if left_type == ir.DoubleType() or right_type == ir.DoubleType():
+        
+        if left_type == ir.IntType(32) and right_type == ir.IntType(32):
+            if node.operator == '+':
+                result = self.builder.add(left, right)
+            elif node.operator == '-':
+                result = self.builder.sub(left, right)
+            elif node.operator == '*':
+                result = self.builder.mul(left, right)
+            elif node.operator == '/':
+                result = self.builder.sdiv(left, right)
+            elif node.operator == '%':
+                result = self.builder.srem(left, right)
+            else:
+                throw(CompilationError(f"Unknown operator for integers: {node.operator}"))
+
+        elif left_type == ir.DoubleType() and right_type == ir.DoubleType():
             if node.operator == '+':
                 result = self.builder.fadd(left, right)
             elif node.operator == '-':
@@ -355,81 +324,126 @@ class LLVMCodeGenerator:
             elif node.operator == '%':
                 result = self.builder.frem(left, right)
             elif node.operator == '^':
-                pass
+                self.declareGlobal('pow')
+                pow_ = self.module.get_global('pow')
+                result = self.builder.call(pow_, [left, right])
             else:
-                raise CompilationError(f"Unknown operator for floats: {node.operator}")
+                throw(CompilationError(f"Unknown operator for doubles: {node.operator}"))
 
-        elif left_type == ir.IntType() or right_type == ir.IntType():
+        elif (left_type == ir.IntType(32) and right_type == ir.DoubleType()) or (left_type == ir.DoubleType() and right_type == ir.IntType(32)):
+            # most type promotions are done in the analyzer. this is for values that are unknown until runtime 
+            if left_type == ir.IntType(32):
+                left = self.builder.sitofp(left, ir.DoubleType())
+            elif right_type == ir.IntType(32):
+                right = self.builder.sitofp(right, ir.DoubleType())
+
             if node.operator == '+':
-                result = self.builder.add(left, right)
+                result = self.builder.fadd(left, right)
             elif node.operator == '-':
-                result = self.builder.sub(left, right)
+                result = self.builder.fsub(left, right)
             elif node.operator == '*':
-                result = self.builder.mul(left, right)
+                result = self.builder.fmul(left, right)
             elif node.operator == '/':
-                result = self.builder.sdiv(left, right)
+                result = self.builder.fdiv(left, right)
             elif node.operator == '%':
-                result = self.builder.srem(left, right)
+                result = self.builder.frem(left, right)
             elif node.operator == '^':
-                pass
-
+                self.declareGlobal('pow')
+                pow_ = self.module.get_global('pow')
+                result = self.builder.call(pow_, [left, right])
             else:
-                raise CompilationError(f"Unknown operator for integers: {node.operator}")
+                throw(CompilationError(f"Unknown operator for mixed types: {node.operator}"))
 
         else:
-            raise CompilationError(f"Cannot perform operation on differing or unsupported types: {type(node.left)} and {type(node.right)}")
+            throw(CompilationError(f"Illegal Binary Operation on line {node.line}: \n\t{str(node)}\nCannot perform binary operations on differing or unsupported types: {left_type} and {right_type}"))
 
         return result
 
-    # TODO: test '!' support
     def visit_unary_op(self, node):
         operand = node.left.accept(self)  
 
         if node.operator == '-':
             if operand.type == ir.DoubleType():
                 result = self.builder.fneg(operand)
-            elif operand.type == ir.IntType():
+            elif operand.type == ir.IntType(32):
                 result = self.builder.neg(operand)
             else:
-                raise CompilationError(f"Unknown operand for unary operation: {node.operand}")
+                throw(CompilationError(f"Unknown operand for unary operation: {node.operand}"))
         elif node.operator == '!':
             result = self.builder.not_(operand)
         elif node.operator == '+':
             result = operand
         else:
-            raise ValueError(f"Unknown operator: {node.operator}")
+            throw(ValueError(f"Unknown operator: {node.operator}"))
 
         return result  
 
     def visit_comparison(self, node):
         left = node.left.accept(self)  
         right = node.right.accept(self)  
-
-        if node.operator == '==':
-            if node.left.evaluateType() == 'string':
-                print(f"left type is: {left.type} right type is: {right.type}")
-                strcmp_func = self.module.globals['strcmp']
-                
-                strcmp_result = self.builder.call(strcmp_func, [left, right])
-                result = self.builder.icmp_signed('==', strcmp_result, ir.Constant(ir.IntType(32), 0))  # strcmp returns 0 if strings are equal
-
-            else:
+        left_type = left.type
+        right_type = right.type
+        
+        # String comparisons
+        if node.left.evaluateType() == 'string' and node.operator == '==':
+            self.declareGlobal('strcmp')
+            strcmp_func = self.module.globals['strcmp']
+            strcmp_result = self.builder.call(strcmp_func, [left, right])
+            result = self.builder.icmp_signed('==', strcmp_result, ir.Constant(ir.IntType(32), 0))  # strcmp returns 0 if strings are equal
+            return result
+        
+        if left_type == ir.IntType(32) and right_type == ir.IntType(32):
+            if node.operator == '==':
                 result = self.builder.icmp_signed('==', left, right)
-        elif node.operator == '!=':
-            result = self.builder.icmp_signed('!=', left, right)
-        elif node.operator == '<':
-            result = self.builder.icmp_signed('<', left, right)
-        elif node.operator == '<=':
-            result = self.builder.icmp_signed('<=', left, right)
-        elif node.operator == '>':
-            result = self.builder.icmp_signed('>', left, right)
-        elif node.operator == '>=':
-            result = self.builder.icmp_signed('>=', left, right)
+            elif node.operator == '!=':
+                result = self.builder.icmp_signed('!=', left, right)
+            elif node.operator == '<':
+                result = self.builder.icmp_signed('<', left, right)
+            elif node.operator == '<=':
+                result = self.builder.icmp_signed('<=', left, right)
+            elif node.operator == '>':
+                result = self.builder.icmp_signed('>', left, right)
+            elif node.operator == '>=':
+                result = self.builder.icmp_signed('>=', left, right)
+            else:
+                throw(ValueError(f"Unknown operator: {node.operator}"))
+        
+        elif left_type == ir.IntType(1) and right_type == ir.IntType(1):
+            if node.operator == '==':
+                result = self.builder.icmp_signed('==', left, right)
+            elif node.operator == '!=':
+                result = self.builder.icmp_signed('!=', left, right)
+            elif node.operator == '<':
+                result = self.builder.icmp_signed('<', left, right)
+            elif node.operator == '<=':
+                result = self.builder.icmp_signed('<=', left, right)
+            elif node.operator == '>':
+                result = self.builder.icmp_signed('>', left, right)
+            elif node.operator == '>=':
+                result = self.builder.icmp_signed('>=', left, right)
+            else:
+                throw(ValueError(f"Unknown operator: {node.operator}"))
+        
+        elif left_type == ir.DoubleType() and right_type == ir.DoubleType():
+            if node.operator == '==':
+                result = self.builder.fcmp_ordered('==', left, right)
+            elif node.operator == '!=':
+                result = self.builder.fcmp_ordered('!=', left, right)
+            elif node.operator == '<':
+                result = self.builder.fcmp_ordered('<', left, right)
+            elif node.operator == '<=':
+                result = self.builder.fcmp_ordered('<=', left, right)
+            elif node.operator == '>':
+                result = self.builder.fcmp_ordered('>', left, right)
+            elif node.operator == '>=':
+                result = self.builder.fcmp_ordered('>=', left, right)
+            else:
+                throw(ValueError(f"Unknown operator: {node.operator}"))
+        
         else:
-            raise ValueError(f"Unknown operator: {node.operator}")
-
-        return result 
-
+            throw(CompilationError(f"Cannot perform operation on differing or unsupported types: {type(node.left)} and {type(node.right)}"))
+        return result
+    
     def visit_logical_op(self, node):
         left = node.left.accept(self)  
         right = node.right.accept(self)  
@@ -439,50 +453,303 @@ class LLVMCodeGenerator:
         elif node.operator == '||':
             result = self.builder.or_(left, right)
         else:
-            raise ValueError(f"Unknown operator: {node.operator}")
+            throw(ValueError(f"Unknown operator: {node.operator}"))
 
         return result  
     
-    def visit_integer(self, node):
-        return ir.Constant(ir.IntType(32), node.value)
+    def visit_string_cat(self, node):
+        if node.evaluated is not None:
+            return self.visit_string(node.evaluated)
+        
+        if len(node.strings) == 0:
+            raise CompilationError("No strings to concatenate")
 
-    # rename to double
-    def visit_float(self, node):
-        return ir.Constant(ir.DoubleType(), node.value)
+        def allocate_string_memory(size):
+            mem = self.builder.alloca(ir.ArrayType(ir.IntType(8), size))
+            zero = ir.Constant(ir.IntType(8), 0)
+            mem_init = self.builder.bitcast(mem, ir.PointerType(ir.IntType(8)))
+            self.builder.store(zero, mem_init)
+            return mem
+
+        array_size = 8192  # Assuming a large enough buffer size
+        result_ptr = allocate_string_memory(array_size)
+        buffer_ptr = self.builder.bitcast(result_ptr, ir.PointerType(ir.IntType(8)))
+
+        # Initialize the buffer with the null terminator
+        null_terminator = ir.Constant(ir.IntType(8), 0)
+        self.builder.store(null_terminator, buffer_ptr)
+
+        self.declareGlobal('strcat')
+        self.declareGlobal('sprintf')
+        self.declareGlobal('strlen')
+        for i in range(len(node.strings)):
+            if isinstance(node.strings[i], str):
+                next_string = String(node.strings[i]).accept(self)
+            else:
+                next_string = node.strings[i].accept(self)
+
+            # Check the type and convert if necessary
+            if not (isinstance(next_string.type, ir.PointerType) and next_string.type.pointee == ir.IntType(8)):
+                if next_string.type is ir.IntType(32):
+                    format_str_int = self.builder.bitcast(self.module.get_global('sprintf_fmt_int'), ir.PointerType(ir.IntType(8)))
+                    buffer_int = allocate_string_memory(12)  # Allocate buffer for int conversion
+                    buffer_int_ptr = self.builder.bitcast(buffer_int, ir.PointerType(ir.IntType(8)))
+                    self.builder.call(self.module.get_global('sprintf'), [buffer_int_ptr, format_str_int, next_string])
+                    next_string = buffer_int_ptr
+                elif next_string.type is ir.DoubleType():
+                    format_str_double = self.builder.bitcast(self.module.get_global('sprintf_fmt_double'), ir.PointerType(ir.IntType(8)))
+                    buffer_double = allocate_string_memory(32)  # Allocate buffer for double conversion
+                    buffer_double_ptr = self.builder.bitcast(buffer_double, ir.PointerType(ir.IntType(8)))
+                    self.builder.call(self.module.get_global('sprintf'), [buffer_double_ptr, format_str_double, next_string])
+                    next_string = buffer_double_ptr
+                elif next_string.type is ir.IntType(1):  # Boolean type (i1)
+                    true_str = self.builder.global_string_ptr("true", name="bool_true")
+                    false_str = self.builder.global_string_ptr("false", name="bool_false")
+                    next_string = self.builder.select(next_string, true_str, false_str)
+                else:
+                    raise CompilationError(f"Expected i8* type for string concatenation, got: {next_string.type}")
+
+            # Concatenate the next string into the result buffer
+            strcat = self.module.get_global('strcat')
+            self.builder.call(strcat, [buffer_ptr, next_string])
+
+            # Move the buffer pointer to the end of the newly concatenated string
+            buffer_ptr = self.builder.gep(buffer_ptr, [self.builder.call(self.module.get_global('strlen'), [next_string])])
+
+        return result_ptr
+    
+    def visit_integer(self, node):
+        const_val = ir.Constant(ir.IntType(32), node.value)
+        int_var = self.builder.alloca(const_val.type, name="int_var")  
+        self.builder.store(const_val, int_var)
+        return self.builder.load(int_var)
+
+    def visit_double(self, node):
+        const_val = ir.Constant(ir.DoubleType(), node.value)
+        double_var = self.builder.alloca(const_val.type, name="double_var")  
+        self.builder.store(const_val, double_var)
+        return self.builder.load(double_var)
 
     def visit_boolean(self, node):
-        return ir.Constant(ir.IntType(1), node.value)
+        const_val = ir.Constant(ir.IntType(1), node.value)
+        bool_var = self.builder.alloca(const_val.type, name="bool_var")  
+        self.builder.store(const_val, bool_var)
+        return self.builder.load(bool_var)
 
     def visit_string(self, node):
         str_val = bytearray(node.value.encode("utf8")) + b"\0"
         str_constant = ir.Constant(ir.ArrayType(ir.IntType(8), len(str_val)), str_val)
 
-        # Generate a unique name using the counter
         unique_name = f"str_{self.string_counter}"
         self.string_counter += 1
 
-        # Allocate space for the string on the stack (local variable) with a mangled name
-        str_var = self.builder.alloca(str_constant.type, name=unique_name)
+        str_var = self.builder.alloca(str_constant.type, name=unique_name)  
         self.builder.store(str_constant, str_var)
-
-        # Get a pointer to the first element of the array
         str_ptr = self.builder.gep(str_var, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 0)])
 
         return self.builder.bitcast(str_ptr, ir.PointerType(ir.IntType(8)))
-
+    
     def visit_null(self, node):
         return ir.Constant(ir.IntType(32), None)
 
-    def get_ir_type(self, type_str):
+# --------------------------- Helpers --------------------------- #
+
+    def getIrType(self, type_str):
         if type_str == 'integer':
             return ir.IntType(32)
-        elif type_str == 'float':
+        elif type_str == 'double':
             return ir.DoubleType()
         elif type_str == 'string':
             return ir.PointerType(ir.IntType(8))
         elif type_str == 'boolean':
             return ir.IntType(1)
-        elif type_str == 'null':
+        elif type_str == 'void':
             return ir.VoidType()
         else:
-            raise ValueError(f"Unknown type: {type_str}")
+            throw(ValueError(f"Unknown type: {type_str}"))
+
+    def declareGlobal(self, name):
+        """ Declares a global if it hasn't been declared already """
+
+        format_strings = {
+            "printf": {
+                "print_fmt_int": "%d\n\0",
+                "print_fmt_double": "%f\n\0",
+                "print_fmt_bool": "%d\n\0",
+                "print_fmt_str": "%s\n\0"
+            },
+            "scanf": {
+                "format_scanf": "%s\0"  
+            },
+            "sprintf": {
+                "sprintf_fmt_int": "%d\0",
+                "sprintf_fmt_double": "%f\0"
+            }
+        }
+
+        if name == "printf":
+            for fmt_name, fmt in format_strings["printf"].items():
+                try:
+                    self.module.get_global(fmt_name)
+                except KeyError:
+                    c_format_str = ir.Constant(ir.ArrayType(ir.IntType(8), len(fmt)), bytearray(fmt.encode("utf8")))
+                    format_global = ir.GlobalVariable(self.module, c_format_str.type, name=fmt_name)
+                    format_global.global_constant = True
+                    format_global.initializer = c_format_str
+
+            try:
+                self.module.get_global("printf")
+            except KeyError:
+                printf_ty = ir.FunctionType(ir.IntType(32), [ir.PointerType(ir.IntType(8))], var_arg=True)
+                ir.Function(self.module, printf_ty, name="printf")
+
+        elif name == "scanf":
+            format_str_name = "format_scanf"
+            try:
+                self.module.get_global(format_str_name)
+            except KeyError:
+                format_str = format_strings["scanf"][format_str_name]
+                c_format_str = ir.Constant(ir.ArrayType(ir.IntType(8), len(format_str)), bytearray(format_str.encode("utf8")))
+                c_format_str_global = ir.GlobalVariable(self.module, c_format_str.type, name=format_str_name)
+                c_format_str_global.linkage = 'internal'
+                c_format_str_global.global_constant = True
+                c_format_str_global.initializer = c_format_str
+
+            try:
+                self.module.get_global("scanf")
+            except KeyError:
+                scanf_ty = ir.FunctionType(ir.IntType(32), [ir.PointerType(ir.IntType(8))], var_arg=True)
+                ir.Function(self.module, scanf_ty, name="scanf")
+
+        elif name == "sprintf":
+            for fmt_name, fmt in format_strings["sprintf"].items():
+                try:
+                    self.module.get_global(fmt_name)
+                except KeyError:
+                    c_format_str = ir.Constant(ir.ArrayType(ir.IntType(8), len(fmt)), bytearray(fmt.encode("utf8")))
+                    format_global = ir.GlobalVariable(self.module, c_format_str.type, name=fmt_name)
+                    format_global.global_constant = True
+                    format_global.initializer = c_format_str
+
+            try:
+                self.module.get_global("sprintf")
+            except KeyError:
+                sprintf_ty = ir.FunctionType(
+                    ir.IntType(32),
+                    [ir.PointerType(ir.IntType(8)), ir.PointerType(ir.IntType(8))],
+                    var_arg=True
+                )
+                ir.Function(self.module, sprintf_ty, name="sprintf")
+
+        elif name == "pow":
+            try:
+                self.module.get_global("pow")
+            except KeyError:
+                pow_ty = ir.FunctionType(ir.DoubleType(), [ir.DoubleType(), ir.DoubleType()])
+                ir.Function(self.module, pow_ty, name="pow")
+
+        elif name == "strlen":
+            try:
+                self.module.get_global("strlen")
+            except KeyError:
+                strlen_ty = ir.FunctionType(ir.IntType(64), [ir.PointerType(ir.IntType(8))])
+                ir.Function(self.module, strlen_ty, name="strlen")
+
+        elif name == "strcmp":
+            try:
+                self.module.get_global("strcmp")
+            except KeyError:
+                strcmp_ty = ir.FunctionType(ir.IntType(32), [ir.PointerType(ir.IntType(8)), ir.PointerType(ir.IntType(8))])
+                ir.Function(self.module, strcmp_ty, name="strcmp")
+
+        elif name == "strcat":
+            try:
+                self.module.get_global("strcat")
+            except KeyError:
+                strcat_ty = ir.FunctionType(ir.PointerType(ir.IntType(8)), [ir.PointerType(ir.IntType(8)), ir.PointerType(ir.IntType(8))])
+                ir.Function(self.module, strcat_ty, name="strcat")
+
+        elif name == "atoi":
+            try:
+                self.module.get_global("atoi")
+            except KeyError:
+                atoi_ty = ir.FunctionType(ir.IntType(32), [ir.PointerType(ir.IntType(8))])
+                ir.Function(self.module, atoi_ty, name="atoi")
+
+        elif name == "atof":
+            try:
+                self.module.get_global("atof")
+            except KeyError:
+                atof_ty = ir.FunctionType(ir.DoubleType(), [ir.PointerType(ir.IntType(8))])
+                ir.Function(self.module, atof_ty, name="atof")
+
+# --------------------------- Builtin functions --------------------------- #
+
+    def print_builtin(self, node):
+        expr_value = node.args[0].value.accept(self)
+        expr_type = node.args[0].value.evaluateType()
+        
+        if expr_type == 'integer':
+            format_str_name= "print_fmt_int"
+        elif expr_type == 'double':
+            format_str_name = "print_fmt_double"
+        elif expr_type == 'bool':
+            format_str_name = "print_fmt_bool"
+        elif expr_type == 'string':
+            format_str_name = "print_fmt_str"
+        elif isinstance(node, BinaryOp) and hasattr(node, evaluatedString) and node.evaluatedString is not None:
+            format_str_name = "print_fmt_str"   # string concatenations 
+        else:
+            throw(Exception(f"Unsupported expression type: {expr_type}"))
+
+        self.declareGlobal('printf')
+        fmt_ptr = self.builder.bitcast(self.module.get_global(format_str_name), ir.PointerType(ir.IntType(8)))
+        printf = self.module.get_global('printf')
+
+        if expr_type in ['integer', 'bool', 'double']:
+            self.builder.call(printf, [fmt_ptr, expr_value])
+        elif expr_type == 'string':
+            expr_value = self.builder.bitcast(expr_value, ir.PointerType(ir.IntType(8)))
+            self.builder.call(printf, [fmt_ptr, expr_value])
+        else:
+            throw(Exception(f"Unsupported print type: {expr_type}"))
+
+    def input_builtin(self, node):
+        self.declareGlobal('scanf')
+        c_format_str_global = self.module.get_global('format_scanf')
+        fmt_ptr = self.builder.bitcast(c_format_str_global, ir.PointerType(ir.IntType(8)))
+
+        # Input Buffer
+        buffer = self.builder.alloca(ir.ArrayType(ir.IntType(8), 4096), name=f"input_buffer{self.string_counter}")  # 4096-byte buffer
+        buffer_ptr = self.builder.gep(buffer, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 0)], inbounds=True)
+
+        scanf = self.module.get_global('scanf')
+        self.builder.call(scanf, [fmt_ptr, buffer_ptr])
+        return buffer_ptr
+        
+# -------------------------- Member method Calls --------------------------- #
+
+    def toInteger_call(self, node, receiver_result):
+        self.declareGlobal('atoi')
+        atoi_func = self.module.globals['atoi']
+        
+        if receiver_result.type != ir.PointerType(ir.IntType(8)):
+            throw(TypeError(f"Expected string, got {receiver_result.type} in 'toInteger' call at line {node.line}"))
+    
+        result = self.builder.call(atoi_func, [receiver_result])
+        return result
+
+    def toDouble_call(self, node, receiver_result):
+        self.declareGlobal('atof')
+        atof_func = self.module.globals['atof']
+        result = self.builder.call(atof_func, [receiver_result])
+        return result
+
+    def length_call(self, node, receiver_result):
+        self.declareGlobal('strlen')
+        strlen_func = self.module.globals['strlen']
+        strlen_result = self.builder.call(strlen_func, [receiver_result])
+        truncated_result = self.builder.trunc(strlen_result, ir.IntType(32))
+        return truncated_result
+
+    

@@ -1,2 +1,0 @@
-print("hello world \t what should i do?")
-set x = "hello world \t" + "what should i do?"
