@@ -6,6 +6,7 @@ class SemanticAnalyzer:
     def __init__(self, ast):
         self.ast = ast
         self.symbolTable = SymbolTable()
+        self.stringCatNodes = []
         
         # context vars
         self.func_name = None
@@ -30,14 +31,21 @@ class SemanticAnalyzer:
         
     def visit_program(self, node):
         self.declareBuiltIns()
+        
         try:
             for statement in node.statements:
                 if statement is not None:
                     statement.accept(self)
+                    
+            # We need to evaluate after analysis is complete to ensure correct mutability information for variables.
+            for stringCat in self.stringCatNodes:   
+                stringCat.accept(self)  
+                
         except ExitSignal:
             return 
         except Exception as e:
-            throw(SemanticError(f"{red}An error occurred during semantic analyzer:{reset} {e}"))
+            throw(SemanticError(f"{red}Semantic analysis error:{reset} {e}"),exit=False)
+            return
     
     def visit_block(self, node):
         self.symbolTable.createScope()
@@ -49,47 +57,59 @@ class SemanticAnalyzer:
     def visit_variable(self, node):
         if isinstance(node, VariableDeclaration): 
             if self.symbolTable.inScope(node.name) is not None:
-                throw(ReferenceError(f"The ame '{node.name}' on line {node.line} is already defined.")) 
-            else:
-                node.value.accept(self)
-                data_type = node.evaluateType()
-                
-                if node.annotation is not None:
-                    if node.annotation != data_type:
-                        throw(TypeError(f"Variable '{node.name}' expects type '{node.annotation} but got expression: '{node.value}' of type '{data_type}'", type="Type", line=node.line))
-                        return
-                
-                self.symbolTable.add(
-                    name=node.name,
-                    symbolType='variable',
-                    variableData={
-                        'value': node.value,
-                        'data_type':data_type,
-                        'mutable': False,
-                        'annotated': True if node.annotation is not None else False
-                    }
-                )
+                throw(ReferenceError(f"The name '{node.name}' on line {node.line} is already defined.")) 
+
+            node.value.accept(self)
+            data_type = node.evaluateType()
+            
+            if node.annotation is not None:
+                if node.annotation != data_type:
+                    throw(TypeError(f"Variable '{node.name}' expects type '{node.annotation} but got expression: '{node.value}' of type '{data_type}'", type="Type", line=node.line))
+                    return
+            
+            self.symbolTable.add(
+                name=node.name,
+                symbolType='variable',
+                variableData={
+                    'value': node.value,
+                    'data_type':data_type,
+                    'isStatic': self.isStaticEvaluable(node.value),
+                    'annotated': True if node.annotation is not None else False
+                }
+            )
 
         elif isinstance(node, VariableUpdated):
             var = self.symbolTable.lookup(node.name)
             if var is None:
-                throw(ReferenceError(f"Variable '{node.name}' on line {node.line} has not been defined")) 
+                throw(ReferenceError(f"Variable '{node.name}' does not exist in this scope"),line=node.line) 
             
             node.value.accept(self)
             data_type = node.evaluateType()
-            
-            var_data = var.get('variable_data')
-            if var_data.get('annotated') is True:
-                expected_type = var_data.get('data_type') 
-                if expected_type != data_type:
-                    throw(TypeError(f"Variable '{node.name}' expects type '{expected_type}' but got expression: '{node.value}' of type '{data_type}'"))
-                    return
-                                
-            if self.canEvaluateNow(node.value):
-                self.symbolTable.update(node.name, data_type, node.value)
-            else:
-                var_data['mutable'] = True
-                self.symbolTable.update(node.name, data_type, None)  # Value unknown
+            if data_type == 'invalid': 
+                throw(TypeError(f"Could not statically infer the type of variable '{node.name}'. If possible, try adding type hints - you are using glitchy, this is your fault not mine."),line=node.line)
+            try:
+                symbolTy =  var.get('symbol_type')
+                if symbolTy == 'variable':
+                    var_data = var.get('variable_data')
+                    if var_data.get('annotated') is True:
+                        expected_type = var_data.get('data_type') 
+                        if expected_type != data_type:
+                            throw(TypeError(f"Variable '{node.name}' expects type '{expected_type}' but got expression: '{node.value}' of type '{data_type}'"))
+                            return
+                                        
+                    if self.isStaticEvaluable(node.value):
+                        self.symbolTable.update(node.name, data_type, node.value)
+                    else:
+                        var_data['isStatic'] = False
+                        self.symbolTable.update(node.name, data_type, None)  
+                elif symbolTy == 'parameter':
+                    parm_data = var.get('parameter_data')
+                    expected_type = parm_data.get('data_type')
+                    if expected_type != data_type:
+                        throw(TypeError(f"Parameter '{node.name}' expects type '{expected_type}' but got expression of type '{data_type}'"))
+                    
+            except Exception as e:
+                throw(e,line=node.line)
 
         elif isinstance(node, VariableReference): 
             symbol = self.symbolTable.lookup(node.name)               
@@ -100,7 +120,6 @@ class SemanticAnalyzer:
                 var_data = symbol.get('variable_data')
                 node.type = var_data.get('data_type','invalid')
                 node.value = var_data.get('value', None)
-                node.mutable = var_data.get('mutable', True)
             elif symbol.get('symbol_type') == 'parameter':
                 type_str = symbol.get('parameter_data').get('data_type','invalid')
                 node.type = type_str
@@ -239,7 +258,9 @@ class SemanticAnalyzer:
     
     def visit_binary_op(self, node):
         self.promoteExprInts(node)
-        self.checkStrcat(node)
+        isStringCat= self.checkStrcat(node)
+        if isStringCat:  # no need to continue 
+            return
         node.left.accept(self)
         node.right.accept(self)
         self.validateOperation(node)
@@ -348,7 +369,6 @@ class SemanticAnalyzer:
         if expression_type != 'boolean':
             formattedType = "Invalid" if (expression_type is None) else expression_type
             throw(TypeError(f"Expression on line {left.line} does not evaluate to boolean, but to: '{formattedType}'.\n '{repr(node)}'"))
-
     
     def declareBuiltIns(self):
         for func in BuiltInFunctions.getAll():
@@ -361,37 +381,47 @@ class SemanticAnalyzer:
                 }
             )
 
-    def canEvaluateNow(self, value):
+    def isStaticEvaluable(self, value):
         """
-        Determines whether a variables value can be evaluated at compile time or should be deferred to runtime.
+        Determines whether a variable's value can be evaluated at compile time, i.e., is Static.
         """
-        
-        # ain't no way i'm calculating loop iterations
+        # Always return True for constant primary values, even inside a loop
+        if isinstance(value, Primary):
+            return True
+
+        # If inside a loop and the value involves variables, it's not statically evaluable
         if self.inLoopBlock:
+            if isinstance(value, VariableReference):
+                return False
+            
+            # For expressions inside a loop, evaluate their components
+            elif isinstance(value, Expression):
+                if isinstance(value, UnaryOp):
+                    return self.isStaticEvaluable(value.left)
+                elif isinstance(value, BinaryOp):
+                    return self.isStaticEvaluable(value.left) and self.isStaticEvaluable(value.right)
+            
             return False
 
-        if isinstance(value, Primary):
-            return True  
-
-        elif isinstance(value, VariableReference):
+        if isinstance(value, VariableReference):
             symbol = self.symbolTable.lookup(value.name)
-            if symbol is None:
-                return False  
-
-            var_data = symbol.get('variable_data', {})
-            if var_data.get('mutable', True):
-                return False  
-
-            if var_data.get('value') is not None:
-                return True  
-
-            return False 
-
+            ty =  symbol.get('symbol_type',None)
+            if symbol is None or ty is None:
+                return False
+            
+            if ty in ['parameter', 'function']:
+                return False
+            else:                
+                var_data = symbol.get('variable_data', {})
+                return var_data.get('isStatic', False)
+        
         elif isinstance(value, Expression):
             if isinstance(value, UnaryOp):
-                return self.canEvaluateNow(value.left)
-            return self.canEvaluateNow(value.left) and self.canEvaluateNow(value.right)
-
+                return self.isStaticEvaluable(value.left)
+            elif isinstance(value, BinaryOp):
+                return self.isStaticEvaluable(value.left) and self.isStaticEvaluable(value.right)
+        
+        # catch all
         return False
     
     def validateUnary(self, left, operator):
@@ -424,7 +454,9 @@ class SemanticAnalyzer:
             if node.parent is None:
                 throw(CompilationError(f"AST node for String concatenation:\n{str(node)}\nhas no parent attr. cannot continue"))
             strcat_node = self.transformStrcat(node)
-            strcat_node.accept(self)
+            if isinstance(strcat_node, StringCat):
+                return True
+        return False
             
     def transformStrcat(self, node):
         """
@@ -437,15 +469,18 @@ class SemanticAnalyzer:
 
             node.replace_with(string_cat_node)
             node.transformed = True
-                
+            
+            # For later evaluation
+            self.stringCatNodes.append(string_cat_node)
+            
             return string_cat_node
         else:
             return node
 
     def _collectStrings(self, node):
         """
-        Recursively collect all string literals and expr nodes for concatenation
-        from a BinaryOp tree into a single list.
+        Recursively collect all string literals and static variables for concatenation
+        from a BinaryOp tree into a single list. If we find a value that is non-static we defer to runtime
         """
         strings = []
 
@@ -457,6 +492,8 @@ class SemanticAnalyzer:
                 collect(node.left)
                 collect(node.right)
             elif node.evaluateType() in ['string','integer','double','boolean','null']:
+                if isinstance(node, VariableReference):
+                    node.scope = self.symbolTable.scopeOf(node.name)  
                 strings.append(node)
             else:
                 throw(TypeError(f"Illegal Expression in String concatenation: {node}  with types:'{node.evaluateType()}' '+' '{node.evaluateType()}'"))
@@ -465,14 +502,18 @@ class SemanticAnalyzer:
         return strings
     
     def evalStrCat(self, node):
+        """ Attempts to evaluated a string concatenation. defers otherwise """
         evaluated_strings = []
         buffer = [] 
         fully_evaluated = True  
 
         for expr in node.strings:
             if isinstance(expr, VariableReference) or isinstance(expr, FunctionCall):
-                if isinstance(expr, VariableReference) and expr.value is not None and expr.mutable is not True:
-                    evaluated_string = self._opToString(expr.value)
+                if isinstance(expr, VariableReference) and expr.value is not None:
+                    isStatic = self.symbolTable.isStatic(expr.name, expr.scope)
+                    evaluated_string = False
+                    if isStatic:
+                        evaluated_string = self._opToString(expr.value)
                     if evaluated_string is False:
                         fully_evaluated = False  # Needs runtime evaluation
                         if buffer:
@@ -490,7 +531,7 @@ class SemanticAnalyzer:
             elif isinstance(expr, Primary):
                 evaluated_string = self._opToString(expr)
                 buffer.append(evaluated_string)
-            elif isinstance(expr, BinaryOp) or isinstance(expr, LogicalOp) or isinstance(expr, Comparison) or isinstance(expr, UnaryOp):
+            elif isinstance(expr, Expression):
                 if isinstance(expr, UnaryOp):
                     evaluated_expr = self._evaluateUnary(expr)
                 else:
@@ -553,7 +594,7 @@ class SemanticAnalyzer:
                 if isinstance(node, FunctionCall) or isinstance(node, MethodCall):
                         return None 
                 elif isinstance(node, VariableReference):
-                    if node.mutable:
+                    if self.symbolTable.isStatic(node.name) is False:
                         return None 
                     return node.value
                 elif hasattr(node, 'left') and hasattr(node, 'right'):
@@ -579,7 +620,7 @@ class SemanticAnalyzer:
         try:
             def evaluate_node(node):
                 if isinstance(node, VariableReference):
-                    if node.mutable:
+                    if self.symbolTable.isStatic(node.name) is False:
                         return None 
                     return node.value
                 elif hasattr(node, 'left'):
@@ -620,7 +661,10 @@ class SemanticAnalyzer:
         node.replace_with(String(ty,True))
      
     def promoteExprInts(self, node, expr_type=None):
-        """Promote integers in exprs that evaluate to double. 2 + 1.5 => 2.0 + 1.5"""
+        """
+        Promote integers in exprs that evaluate to double. Will not work on variables
+        if a variable holds an Integer value, this function will not promote it. our runtime will convert these cases
+        """
 
         expr_type = expr_type or node.evaluateType()  # Pass to recursive calls so they know the type of overall expr
         left_type = node.left.evaluateType()
@@ -642,26 +686,30 @@ class SemanticAnalyzer:
                 node.cached_type = None
     
     def promotePowInts(self, node, expr_type=None):
-        """Promotes all ints to doubles in exponentiation ('^') exprs """
+        """Promotes all ints to doubles in exponentiation ('^') exprs. V """
+        
+        if expr_type == 'double' or isinstance(node, VariableReference):
+            return
         
         expr_type = expr_type or node.evaluateType()
         left_type = node.left.evaluateType()
         right_type = node.right.evaluateType()
 
         if expr_type == 'integer':
-            if left_type == 'integer':
-                if isinstance(node.left, Integer):
-                    node.left = Double(float(node.left.value))
-                else:
-                    self.promotePowInts(node.left, expr_type)  
-                node.cached_type = None
-                
-            if right_type == 'integer':
-                if isinstance(node.right, Integer):
-                    node.right = Double(float(node.right.value))
-                else:
-                    self.promotePowInts(node.right, expr_type)  
-                node.cached_type = None
+            if isinstance(node, BinaryOp):
+                if left_type == 'integer':
+                    if isinstance(node.left, Integer):
+                        node.left = Double(float(node.left.value))
+                    else:
+                        self.promotePowInts(node.left, expr_type)  
+                    node.cached_type = None
+                    
+                if right_type == 'integer':
+                    if isinstance(node.right, Integer):
+                        node.right = Double(float(node.right.value))
+                    else:
+                        self.promotePowInts(node.right, expr_type)  
+                    node.cached_type = None
         else:
             throw(TypeError(f"Invalid type in exponentiation on line {node.line}: '{repr(node)}' with types'{left_type}' '^' '{right_type}'"))
     

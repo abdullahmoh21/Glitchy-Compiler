@@ -16,7 +16,7 @@ class BuiltInFunctions:
             'name': 'print',
             'parameters': [Parameter('', 'any')],
             'arity': 1,
-            'return_type': 'null'
+            'return_type': 'void'
         },
         'input': {
             'name': 'input',

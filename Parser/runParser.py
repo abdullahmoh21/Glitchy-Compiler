@@ -5,13 +5,13 @@ from utils import error
 
 
 def main():
-        source_code = """ 
-        toPeg = 1
-        fromPeg = 0
-        num = 1+2+3+4
-        print("Move disk 1 from peg " + fromPeg + " to peg " + toPeg)
+        source_code = """
+        {
+            set sum = "lpc" 
+        }
+        
+        sum = 10
         """
-   
         lexer = Lexer(source_code)
         parser = Parser(lexer)
         generated_ast = parser.parse()
@@ -22,6 +22,7 @@ def main():
             generated_ast.print_content()
         else:
             print("Error: No AST generated.")
+
             
             
 main()

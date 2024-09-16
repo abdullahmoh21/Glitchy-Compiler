@@ -5,7 +5,7 @@ from utils import error
 
 def main():
     source_code = """
-    print("your input: "+z)
+   
     """
 
 

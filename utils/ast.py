@@ -65,7 +65,10 @@ class VariableDeclaration(ASTNode):
                 self.value == other.value)
         
     def __str__(self):
-        return f"'{str(self.name)}' '=' '{str(self.value)}'"
+        return f"set '{str(self.name)}' '=' '{str(self.value)}'"
+
+    def __repr__(self):
+        return f"VariableDeclaration('{self.name}')"
         
     def accept(self, visitor):
             return visitor.visit_variable(self)
@@ -87,7 +90,7 @@ class VariableReference(ASTNode):
         # set in analyzer
         self.value = None
         self.type = None
-        self.mutable = None
+        self.scope = None
         
     def evaluateType(self):
         if self.type is not None:
@@ -100,11 +103,15 @@ class VariableReference(ASTNode):
     def __str__(self):
         return  f"{str(self.value)}" if self.value is not None else f"{str(self.name)}"
         
+    def __repr__(self):
+        return  f"VariableReference({self.name})"
+    
     def accept(self, visitor):
         return visitor.visit_variable(self)
 
     def print_content(self, indent=0):
-        print(" " * indent + f"VariableReference: {self.name} (mutable? {self.mutable})")
+        _ = f":'{self.type}'" if self.type is not None else ""
+        print(" " * indent + f"VariableReference: '{self.name}':{ _ } ")
 
 class VariableUpdated(ASTNode):
     def __init__(self, name, value, line=None):
@@ -124,6 +131,9 @@ class VariableUpdated(ASTNode):
         
     def __str__(self):
         return f"{str(self.value)}"
+    
+    def __repr__(self):
+        return f"VariableUpdated({str(self.name)})"
         
     def accept(self, visitor):
         return visitor.visit_variable(self)
@@ -153,7 +163,9 @@ class FunctionDeclaration(ASTNode):
     def __str__(self):
         params_str = ', '.join([str(param) for param in self.parameters])
         return f"function {str(self.name)}([{params_str}]) {{...}}"
-
+    
+    def __repr__(self):
+        return f"FunctionDeclaration({str(self.name)})"
     
     def accept(self, visitor):
         return visitor.visit_function_declaration(self)
@@ -175,6 +187,9 @@ class Return(ASTNode):
     
     def __str__(self):
         return f"{str(self.value)}"
+    
+    def __repr__(self):
+        return f"Return({repr(self.value)})"
 
     def __eq__(self, other):
         return isinstance(other, Return) and self.value == other.value
@@ -190,7 +205,10 @@ class Break(ASTNode):
         self.line = line
     
     def __str__(self):
-        return "Break Statement"
+        return "Break"
+    
+    def __repr__(self):
+        return "Break"
 
     def __eq__(self, other):
         return isinstance(other, Break)
@@ -211,6 +229,9 @@ class Parameter(ASTNode):
     
     def __str__(self):
         return f"{self.name}"
+    
+    def __repr__(self):
+        return f"Parameter({self.name})"
 
     def __eq__(self, other):
         return isinstance(other, Parameter) and self.type == other.type
@@ -295,6 +316,9 @@ class FunctionCall(ASTNode):
     def __str__(self):
         _ = ",".join(str(arg) for arg in self.args) if self.args else ""
         return f"{str(self.name)}({ _ })"
+        
+    def __repr__(self):
+        return f"FunctionCall({str(self.name)})"
     
     def print_content(self, indent=0):
         print(" " * indent + f"FunctionCall: {self.name}")
@@ -310,6 +334,7 @@ class Argument(ASTNode):
     def __init__(self, value, name = None):
         self.name = name
         self.value = value
+        self.parent = None
         self.type = None
     
     def evaluateType(self):
@@ -323,6 +348,13 @@ class Argument(ASTNode):
             return f"[{list_str}]"
         else:
             return f"{str(self.value)}"
+    
+    def __repr__(self):
+        if isinstance(self.value, list):
+            list_str = ', '.join(repr(item) for item in self.value)
+            return f"Argument([{list_str}])"
+        else:
+            return f"Argument({repr(self.value)})"
 
     def __eq__(self, other):
         return isinstance(other, Argument) and self.type == other.type
@@ -331,7 +363,9 @@ class Argument(ASTNode):
         return visitor.visit_argument(self)
     
     def print_content(self, indent=0):
-        print(" " * indent + f"Argument: {self.value}")
+        print(" " * indent + f"Argument: {repr(self.value)}")
+        if self.parent is not None:
+            print(" " * indent+2 + f"parent: {repr(self.parent)}")
 
 class MethodCall(ASTNode):
     def __init__(self, receiver, name, args, line=None):
@@ -355,6 +389,9 @@ class MethodCall(ASTNode):
     def __str__(self):
         _ = ",".join(str(arg) for arg in self.args) if self.args else ""
         return f"{str(self.receiver)}.{str(self.name)}({ _ })"
+
+    def __repr__(self):
+        return f"MethodCall({str(self.receiver)}.{str(self.name)}(...))"
         
     def accept(self, visitor):
         return visitor.visit_method_call(self)
@@ -391,6 +428,9 @@ class If(ASTNode):
     
     def __str__(self):
         return f"{str(self.comparison)}"
+    
+    def __repr__(self):
+        return f"If({repr(self.comparison)})"
     
     def accept(self, visitor):
         return visitor.visit_if(self)
@@ -434,8 +474,10 @@ class While(ASTNode):
         return isinstance(other, While) and self.comparison == other.comparison and self.block == other.block
 
     def __str__(self):
-        # only need to str condition since str(block[i]) will be used for block statements
         return f"{str(self.comparison)}"
+        
+    def __repr__(self):
+        return f"While({repr(self.comparison)})"
         
     def accept(self, visitor):
         return visitor.visit_while(self)
@@ -446,8 +488,10 @@ class While(ASTNode):
         self.block.print_content(indent + 2)
        
 class StringCat(ASTNode):
+    """ Holds string concatenations. Will be transformed from BinaryOps. The strings array holds all the values to be concatenated """
     def __init__(self, strings, parent, line=None):
         self.strings = strings
+        self.line = line
         self.parent = parent
         self.evaluated = None
 
@@ -460,6 +504,10 @@ class StringCat(ASTNode):
     def __str__(self):
         _ = f"{str(self.evaluated)}" if self.evaluated is not None else f"{str(self.strings)}"
         return f"{ _ }"
+
+    def __repr__(self):
+        _ = "True" if self.evaluated is not None else "False"
+        return f"StringCat(eval: { _ })"
     
     def __eq__(self, other):
         return (isinstance(other, StringCat) and
@@ -520,8 +568,8 @@ class BinaryOp(Expression):
         left_type = self.left.evaluateType()
         right_type = self.right.evaluateType()
         numeric_types = ['integer', 'double']
-
-        if self.operator in ['+', '-', '*', '/', '%', '^']:
+        
+        if self.operator in ['+', '-', '*', '/', '%','^']:
             if left_type in numeric_types and right_type in numeric_types:
                 # If one is double, the result is double
                 if left_type == 'double' or right_type == 'double':
@@ -566,6 +614,9 @@ class BinaryOp(Expression):
         
     def __str__(self):
         return f"{str(self.left)} '{self.operator}' {str(self.right)}"
+ 
+    def __repr__(self):
+        return f"BinaryOp({repr(self.left)} '{self.operator}' {repr(self.right)})"
 
     def __eq__(self, other):
         return (isinstance(other, BinaryOp) and
@@ -608,6 +659,9 @@ class UnaryOp(Expression):
     def __str__(self):
         return f"'{self.operator}{self.left}'"
 
+    def __repr__(self):
+        return f"UnaryOp({self.operator}{repr(self.left)})"
+
     def __eq__(self, other):
         return (isinstance(other, UnaryOp) and
                 self.operator == other.operator and
@@ -642,6 +696,9 @@ class Comparison(Expression):
     
     def __str__(self):
         return f"{str(self.left)} '{self.operator}' {str(self.right)}"
+    
+    def __repr__(self):
+        return f"Comparison({repr(self.left)} '{self.operator}' {repr(self.right)})"
     
     def __eq__(self, other):
         return (isinstance(other, Comparison) and
@@ -680,6 +737,9 @@ class LogicalOp(Expression):
     
     def __str__(self):
         return f"'{str(self.left)}' '{self.operator}' '{str(self.right)}'"
+    
+    def __repr__(self):
+        return f"LogicalOp('{repr(self.left)}' '{self.operator}' '{repr(self.right)}')"
 
     def __eq__(self, other):
         return (isinstance(other, LogicalOp) and
@@ -719,7 +779,10 @@ class Integer(Primary):
         return "invalid"
     
     def __str__(self):
-        return f"{self.value}"
+        return f"{str(self.value)}"
+    
+    def __repr__(self):
+        return f"Integer({self.value})"
 
     def accept(self, visitor):
         return visitor.visit_integer(self)
@@ -735,8 +798,11 @@ class Double(Primary):
         return "invalid"
       
     def __str__(self):
-        return f"{self.value}"
-  
+        return f"{str(self.value)}"
+   
+    def __repr__(self):
+        return f"Double({self.value})"
+
     def accept(self, visitor):
         return visitor.visit_double(self)
 
@@ -751,7 +817,10 @@ class Boolean(Primary):
         return "invalid"
    
     def __str__(self):
-        return f"{self.value}"
+        return f"{self.value}" 
+   
+    def __repr__(self):
+        return f"Boolean({self.value})"
  
     def accept(self, visitor):
         return visitor.visit_boolean(self)
@@ -769,6 +838,9 @@ class String(Primary):
 
     def __str__(self):
         return f"'{self.value}'"
+
+    def __repr__(self):
+        return f'"{self.value}"'
     
     def accept(self, visitor):
         return visitor.visit_string(self)
@@ -781,6 +853,9 @@ class Null(Primary):
         return 'null'
    
     def __str__(self):
+        return "Null"
+   
+    def __repr__(self):
         return "Null"
 
     def accept(self, visitor):

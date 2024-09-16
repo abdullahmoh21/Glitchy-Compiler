@@ -5,7 +5,7 @@ class SymbolTable:
         # Initialize with global scope (id, symbols, parent_id, child_indices)
         self.scopes = deque([(0, {}, None, [])])
         self.current_scope_index = 0
-        self.scope_pointer_stack = [self.current_scope_index]  # Stack to manage scope pointers
+        self.scope_pointer_stack = [self.current_scope_index]  
         self.unique_scope_id = 1
         self.visited_children_stack = [0]  # Stack to manage which children have been visited
     
@@ -56,13 +56,12 @@ class SymbolTable:
             'ref': None,    # alloca or value
             'symbol_type': symbolType,          # one of: variable, function, parameter
             'mangled_name': self._mangleVariableName(name) if symbolType == 'variable' else None,
-            'variable_data': variableData,      # dict with fields : "value", "data_type", "annotated"
+            'variable_data': variableData,      # dict with fields : "value", "data_type", "annotated", "isStatic"
             'function_data': functionData,      # dict with fields : "parameters", "arity", "return_type"
             'parameter_data': parameterData     # dict with fields : "data_type", "function_name"
         }
 
     def addGlobalFunction(self, name, functionData=None):
-        # Assuming that the global scope is always at index 0
         global_scope_dict = self.scopes[0][1]
         
         if name in global_scope_dict:
@@ -81,12 +80,23 @@ class SymbolTable:
         current_scope_dict = self.scopes[self.current_scope_index][1]
         return current_scope_dict.get(name, None)
 
-    def isGlobal(self, name):
-        mangled_name = self.getMangledName(name)
-        if mangled_name is not None:
-            return mangled_name.endswith('$0')
-        return None
-
+    def isStatic(self, name, scope_id=None):
+        """
+        Returns whether the variable's isStatic field from variable_data is True,
+        or False if the symbol is not found or is of a different type.
+        """
+        symbol = self.lookup(name, scope_id)
+        if symbol is None:
+            return None
+        
+        symbol_type = symbol.get('symbol_type')
+        
+        if symbol_type == 'variable':
+            variable_data = symbol.get('variable_data', {})
+            return variable_data.get('isStatic', False)
+        else:
+            return False
+    
     def getFunctionType(self, name):
         function = self.lookup(name)
         if function is None or function.get('symbol_type') != 'function':
@@ -96,30 +106,55 @@ class SymbolTable:
     def getMangledName(self, name):
         symbol = self.lookup(name)
         if symbol is not None:
-            return symbol.get('mangled_name')
+            mangled_name = symbol.get('mangled_name')
+            if mangled_name is not None:
+                return mangled_name
+            else:
+                return name     # params have no name mangling
         return None
 
-    def lookup(self, name):
-        # Search from the current scope backward using the pointer stack
+    def scopeOf(self, name):
+        """
+        Returns the scope ID where the variable is declared.
+        Starts searching from the current scope and moves backward.
+        """
         for scope_id in reversed(self.scope_pointer_stack):
             scope_dict = self.scopes[scope_id][1]
             if name in scope_dict:
-                return scope_dict[name]
+                return scope_id
         return None
+    
+    def lookup(self, name, scope_id=None):
+        """
+        Search for the symbol in a specific scope or from the current scope and upward.
+        """
+        if scope_id is None:
+            # Search from the current scope backward using the pointer stack
+            for scope_id in reversed(self.scope_pointer_stack):
+                scope_dict = self.scopes[scope_id][1]
+                if name in scope_dict:
+                    return scope_dict[name]
+            return None
+        else:
+            # Search within a specific scope
+            if scope_id < len(self.scopes):
+                scope_dict = self.scopes[scope_id][1]
+                if name in scope_dict:
+                    return scope_dict[name]
+            return None
 
     def update(self, name, type_info, value=None):
         symbol = self.lookup(name)
         if symbol is not None:
             symbol['type'] = type_info
             if value is not None: 
-                if symbol['symbol_type'] != 'variable':
-                    raise Exception(f"Symbol {name} is not a variable so cannot update it's value")
+                if symbol['symbol_type'] not in ['variable','parameter']:
+                    raise Exception(f"The '{symbol['symbol_type']}' symbol '{name}' cannot be updated")
                 symbol['variable_data']['value'] = value
             return
         raise Exception(f"Symbol '{name}' not found in any scope")
 
     def isDeclared(self, name):
-        # Check if the symbol is declared in any scope
         return any(name in scope[1] for scope in self.scopes)
    
     def getType(self, name):
@@ -145,7 +180,6 @@ class SymbolTable:
             symbol['variable_data']['data_type'] = type_str
         else:
             raise ValueError(f"Unknown symbol type: {symbol_type}")
-
         
     def setReference(self, var_name, ref):
         var_info = self.lookup(var_name)
@@ -199,6 +233,7 @@ class SymbolTable:
             for name, info in scope_dict.items():
                 symbol_type = info.get('symbol_type', 'n/a') or 'n/a'
                 ref = info.get('ref', 'n/a') or 'n/a'
+                ref = ref.get_name() if hasattr(ref, 'get_name') else str(ref)
                 data_type = 'n/a'
                 
                 if symbol_type == 'variable':
@@ -225,5 +260,4 @@ class SymbolTable:
                 print("="*60)
             
             print("\n")            
-                 
                  

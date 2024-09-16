@@ -3,6 +3,8 @@ from Error import *
 from Ast import *
 from SemanticAnalyzer import SemanticAnalyzer
 
+# TODO: edit to check for errors thrown instead of console logs
+
 class SemanticAnalyzerTests(unittest.TestCase):
     
     def test_analyze_no_errors(self):

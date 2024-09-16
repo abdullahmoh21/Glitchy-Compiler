@@ -6,6 +6,7 @@ from Parser import *
 from Ast import *
 from Error import report
 
+# TODO: add tests for exponents and method calls and Parent attr where applicable
 
 #  All my parser tests are in this class. to run all tests: python3 -m unittest parsing.tests
 class TestParser(unittest.TestCase):

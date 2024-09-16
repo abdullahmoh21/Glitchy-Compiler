@@ -7,6 +7,7 @@ from Lexer import *
 from Parser import *
 from Analyzer import *
 from Generator import *
+from collections import deque
 from ctypes import CFUNCTYPE, c_void_p
 
 COLORS = {
@@ -25,54 +26,56 @@ def compile_source(source_code, log_level):
         3: "Full information"
     }
 
-    def log(message, level, color='reset'):
+    log_queue = deque()
+
+    def log(message, level, color='reset', immediate=False, action=None):
         if level <= log_level:
-            print(f"{COLORS[color]}{message}{COLORS['reset']}")
-    
+            if immediate:
+                print(f"{COLORS[color]}{message}{COLORS['reset']}")
+                if action:
+                    action() 
+            else:
+                log_queue.append((message, color, action))  # Add callable action to queue
+
+    # Lexer and parsing phase
     lexer = Lexer(source_code)
     parser = Parser(lexer)
     ast = parser.parse()
+
     if has_error_occurred():
-        log("Parsing failed. Aborting compilation...", 0, 'red')
-        return
+        return 
 
-    log("Parsing completed!", 1, 'green')
-    if log_level >= 2:
-        log("Initial AST generated:", 2, 'blue')
-        ast.print_content()
+    log("Parsing completed!", 1, 'green', immediate=True)
+    log("Initial AST generated:", 2, 'blue', action=lambda: ast.print_content())  
 
+    # Semantic analysis phase
     analyzer = SemanticAnalyzer(ast)
     symbol_table = analyzer.analyze()
-    if has_error_occurred() is False:
-        log("Semantic analysis completed!", 1, 'green')
-        if log_level >= 2:
-            log("The following Symbol table was returned:", 2, 'blue')
-            symbol_table.print_table()
-        if log_level >= 3:
-            log("The analyzer returned this AST:", 2, 'blue')
-            ast.print_content()
-    else:
-        log("Semantic analysis failed. Aborting compilation...", 0, 'red')
-        return
 
+    if has_error_occurred():
+        return  
+
+    log("Semantic analysis completed!", 1, 'green', immediate=True)
+    log("The following Symbol table was returned:", 2, 'blue', action=lambda: symbol_table.print_table())  
+    log("The analyzer returned this AST:", 3, 'blue', action=lambda: ast.print_content())  
+
+    # LLVM IR code generation phase
     llvmir_gen = LLVMCodeGenerator(symbol_table)
     llvm_ir = llvmir_gen.generate_code(ast)
-    if llvm_ir is None:
-        log("Error occurred during code generation. Aborting...", 0, 'red')
-        return
+
+    if has_error_occurred() or llvm_ir is None:
+        return  
 
     try:
         log("LLVM IR generated:", 1, 'blue')
         log("---------------------------------------", 1)
-        log(str(llvm_ir), 1)
+        log(None, 1, action=lambda: print(str(llvm_ir)))  
         log("---------------------------------------", 1)
 
         mod = llvm.parse_assembly(str(llvm_ir))
         mod.verify()
-        log("LLVM IR verification succeeded!", 1, 'green')
     except Exception as e:
-        log(f"LLVM verification failed: {e}", 0, 'red')
-        return
+        log(f"An error occurred during the LLVM IR verification {e}", 0, 'red', immediate=True)
 
     llvm.initialize()
     llvm.initialize_native_target()
@@ -87,28 +90,33 @@ def compile_source(source_code, log_level):
     pass_manager = llvm.create_module_pass_manager()
     pmb.populate(pass_manager)
     pass_manager.run(mod)
+    
+    
+    if not has_error_occurred():
+        while log_queue:
+            message, color, action = log_queue.popleft()
+            if message:
+                print(f"{COLORS[color]}{message}{COLORS['reset']}")
+            if action:
+                action()  # Call deferred action (e.g., print AST or LLVM IR)
 
-    if log_level == 3:
-        print(f"\n{COLORS['blue']}The following optimized LLVM IR code was generated:{COLORS['reset']}\n")
-        print("---------------------------------------")
-        print(str(mod))
-        print("---------------------------------------")
+    if not has_error_occurred():
+        with llvm.create_mcjit_compiler(mod, target_machine) as engine:
+            engine.finalize_object()
+            engine.run_static_constructors()
 
-    with llvm.create_mcjit_compiler(mod, target_machine) as engine:
-        engine.finalize_object()
-        engine.run_static_constructors()
-
-        try:
-            main_ptr = engine.get_function_address("main")
-            if main_ptr:
-                c_main = CFUNCTYPE(None)(main_ptr)
-                c_main()
-            else:
-                log("Error: 'main' function not found.", 0, 'red')
-        except Exception as e:
-            log(f"Execution failed: {str(e)}", 0, 'red')
+            try:
+                main_ptr = engine.get_function_address("main")
+                if main_ptr:
+                    c_main = CFUNCTYPE(None)(main_ptr)
+                    c_main()
+                else:
+                    log("Error: 'main' function not found.", 0, 'red', immediate=True)
+            except Exception as e:
+                log(f"Execution failed: {str(e)}", 0, 'red', immediate=True)
 
     llvm.shutdown()
+
 
 def main():
     parser = argparse.ArgumentParser(description='Compile a single .g file to executable.')
@@ -132,6 +140,7 @@ def main():
         source_code = file.read()
 
     compile_source(source_code, log_level=args.log)
+
 
 if __name__ == "__main__":
     main()

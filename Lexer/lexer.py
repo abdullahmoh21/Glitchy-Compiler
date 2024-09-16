@@ -1,6 +1,6 @@
 import sys
 from .TokenTable import Token, TokenType
-from utils import error
+from utils import report
 
 class Lexer:
     def __init__(self, source): 
@@ -154,7 +154,7 @@ class Lexer:
                     if escape_char in allowed_escapes:
                         stringValue += r"/" + self.currentChar
                     else:
-                        report(f"Unknown escape sequence '\\{self.currentChar}'", type="Syntax", line=self.lineNumber)
+                        report(f"Unknown escape sequence '\\{self.currentChar}'", type_="Syntax", line=self.lineNumber)
                         token = Token(TokenType.ERROR, None)
                 else:
                     stringValue += self.currentChar  
@@ -162,7 +162,7 @@ class Lexer:
                 self.nextChar()
 
                 if self.currentChar == '\0':
-                    report("Unterminated string found.", type="Syntax", line=self.lineNumber)
+                    report("Unterminated string found.", type_="Syntax", line=self.lineNumber)
                     token = Token(TokenType.ERROR, None)
                     break
             
@@ -179,8 +179,8 @@ class Lexer:
                 self.nextChar()
                 is_double = True
                 if not self.peek().isdigit():
-                    message = f"(Lexer) Illegal character in number: {self.peek()}"
-                    report(message, type="Syntax", line=self.lineNumber)
+                    message = f"Illegal character in number: {self.peek()}"
+                    report(message, type_="Syntax", line=self.lineNumber)
                 while self.peek().isdigit():
                     self.nextChar()
             # Extract the number as a string
@@ -192,8 +192,8 @@ class Lexer:
                     number = float(number_str)
                 except ValueError:
                     # Handle conversion error
-                    message = f"(Lexer) Invalid double format: {number_str}"
-                    report(message, type="Syntax", line=self.lineNumber)
+                    message = f"Invalid double format: {number_str}"
+                    report(message, type_="Syntax", line=self.lineNumber)
                 token = Token(TokenType.DOUBLE, number)
             else:
                 try:
@@ -201,8 +201,8 @@ class Lexer:
                     number = int(number_str)
                 except ValueError:
                     # Handle conversion error
-                    message = f"(Lexer) Invalid integer format: {number_str}"
-                    report(message, type="Syntax", lineNumber=self.lineNumber)
+                    message = f"Invalid integer format: {number_str}"
+                    report(message, type_="Syntax", lineNumber=self.lineNumber)
                 token = Token(TokenType.INTEGER, number)
 
         # ---------------- ALPHA-NUM ----------------
@@ -216,7 +216,7 @@ class Lexer:
             tokText = self.source[startPos : self.currentPos + 1]
             
             if '$' in tokText:
-                report("Invalid Token '$' in identifier", type="Syntax", line=startLine)
+                report("Invalid Token '$' in identifier", type_="Syntax", line=startLine)
 
             # Check for boolean literals
             if tokText == "true" or tokText == "false":
@@ -255,8 +255,8 @@ class Lexer:
                     number = float(number_str)
                 except ValueError:
                     number = 0.0 
-                    message = f"(Lexer) Invalid double format: {number_str}"
-                    report(message, type="Syntax", line=self.lineNumber)  # report() will stop further stages. 
+                    message = f"Invalid double format: {number_str}"
+                    report(message, type_="Syntax", line=self.lineNumber)  # report() will stop further stages. 
                 token = Token(TokenType.DOUBLE, number)
             else:
                 token = Token(TokenType.DOT, self.currentChar)
@@ -273,8 +273,8 @@ class Lexer:
             token = Token(TokenType.EOF, '')
             
         else:
-            message= f"(Lexer) Unknown token: {self.currentChar}"
-            report(message, type="Syntax",line= self.lineNumber)
+            message= f"Invalid Character: '{self.currentChar}'"
+            report(message, type_="Syntax",line= self.lineNumber)
             
         self.lastToken = token
         self.nextChar()
