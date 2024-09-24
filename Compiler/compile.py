@@ -18,7 +18,7 @@ COLORS = {
 }
 
 
-def compile_source(source_code, log_level):
+def compile(source_code, log_level):
     LOG_LEVELS = {
         0: "No Logging",
         1: "Minimal information",
@@ -139,7 +139,7 @@ def main():
     with open(file_name, 'r') as file:
         source_code = file.read()
 
-    compile_source(source_code, log_level=args.log)
+    compile(source_code, log_level=args.log)
 
 
 if __name__ == "__main__":

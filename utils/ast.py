@@ -311,7 +311,8 @@ class FunctionCall(ASTNode):
     def __eq__(self, other):
         return (isinstance(other, FunctionCall) and
                 self.name == other.name and
-                self.args == other.args)
+                self.args == other.args and
+                self.parent == other.parent)
     
     def __str__(self):
         _ = ",".join(str(arg) for arg in self.args) if self.args else ""

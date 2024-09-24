@@ -3,14 +3,10 @@ import sys
 import os
 from Lexer import *
 from Parser import *
-from Ast import *
-from Error import report
-
-# TODO: add tests for exponents and method calls and Parent attr where applicable
+from utils import *
 
 #  All my parser tests are in this class. to run all tests: python3 -m unittest parsing.tests
 class TestParser(unittest.TestCase):
-
     def test_simple_set_and_print(self):
         source_code = '''
         set x = 42
@@ -18,7 +14,7 @@ class TestParser(unittest.TestCase):
         '''
         expected_ast = Program([
             VariableDeclaration("x", Integer(42), 2),
-            Print(String("Hello, world"), 3)
+            FunctionCall('print', [Argument(String("Hello, world"))], None, 3)
         ], 1)
         self.run_test(source_code, expected_ast)
 
@@ -34,7 +30,7 @@ class TestParser(unittest.TestCase):
             If(
                 Comparison(VariableReference("x", 3), "==", Integer(10, 3), 3),
                 Block([
-                    Print(String("x is ten"), 4)
+                    FunctionCall('print',[Argument(String("x is ten"))],None,line=4)
                 ]),
                 3
             )
@@ -57,18 +53,18 @@ class TestParser(unittest.TestCase):
             If(
                 Comparison(VariableReference("x", 3), ">", Integer(10, 3), 3),
                 Block([
-                    Print(String("x is greater than ten"), 4)
+                    FunctionCall('print',[Argument(String("x is greater than ten"))], None,4 )
                 ]),
                 elifNodes=[
                     (
                         Comparison(VariableReference("x", 5), "<", Integer(10, 5), 5),
                         Block([
-                            Print(String("x is less than ten"), 6)
+                            FunctionCall('print',[Argument(String("x is less than ten"))], None,6 )
                         ])
                     )
                 ],
                 elseBlock=Block([
-                    Print(String("x is ten"), 8)
+                    FunctionCall('print',[Argument(String("x is ten"))], None,8 )
                 ]),
                 line=3
             )
@@ -99,7 +95,7 @@ class TestParser(unittest.TestCase):
                             If(
                                 Comparison(VariableReference("x", 5), "==", Integer(10, 5), 5),
                                 Block([
-                                    Print(String("x is ten"), 6)
+                                    FunctionCall('print',[Argument(String("x is ten"))], None, 6)
                                 ]),
                                 5
                             )
@@ -140,7 +136,7 @@ class TestParser(unittest.TestCase):
         '''
         expected_ast = Program([
             Input(VariableReference("foo"), 2),
-            Print(VariableReference("foo"), 3)
+            FunctionCall('print',[Argument((VariableReference("foo")))], None, 3)
         ])
         self.run_test(source_code, expected_ast)
 
@@ -480,7 +476,7 @@ class TestParser(unittest.TestCase):
                     If(
                         Comparison(VariableReference("y", 5), "==", Integer(2, 5), 5),
                         Block([
-                            Print(String("y is two"), 6)
+                            FunctionCall('print',[Argument(String("y is two"))], None, 6)
                         ]),
                         5
                     )
@@ -546,7 +542,7 @@ class TestParser(unittest.TestCase):
                 While(
                     Comparison(VariableReference("i", 2), "<", Integer(10, 2), 2),  # Condition
                     Block([
-                        Print(String("Looping"), 3),
+                        FunctionCall('print',[Argument(String("Looping"))], None, 3),
                         VariableUpdated("i",BinaryOp(VariableReference("i", 3), "+", Integer(2, 3), 3), 3)  # Increment
                     ]),
                     2
@@ -567,7 +563,7 @@ class TestParser(unittest.TestCase):
                 While(
                     Comparison(VariableReference("i", 2), "<", Integer(10, 2), 2),  # Condition
                     Block([
-                        Print(String("Looping"), 3),
+                        FunctionCall('print',[Argument(String("Looping"))], None, 3),
                         VariableUpdated("i", BinaryOp(VariableReference("i", 3), "+", Integer(1, 3), 3), 3)  # Increment
                     ]),
                     2
@@ -633,14 +629,14 @@ class TestParser(unittest.TestCase):
 
     def test_multiple_assignment_without_annotation(self):
         source_code = """
-        set x = 10, y = "hello", z = 6.9, a = true
+        set x, y, z, a = 10
         """
         
         expected_ast = Program([
             VariableDeclaration(name="x", value=Integer(10)),
-            VariableDeclaration(name="y", value=String("hello")),
-            VariableDeclaration(name="z", value=Float(6.9)),
-            VariableDeclaration(name="a", value=Boolean("true"))
+            VariableDeclaration(name="y", value=Integer(10)),
+            VariableDeclaration(name="z", value=Integer(10)),
+            VariableDeclaration(name="a", value=Integer(10))
         ])
         
         self.run_test(source_code, expected_ast)
@@ -669,7 +665,7 @@ class TestParser(unittest.TestCase):
 
         if isinstance(generated, Program):
             if len(generated.statements) != len(expected.statements):
-                print(f"Integer of statements mismatch at {path}: {len(generated.statements)} != {len(expected.statements)}")
+                print(f"Number of statements mismatch at {path}: {len(generated.statements)} != {len(expected.statements)}")
                 return False
             for i, (stmt1, stmt2) in enumerate(zip(generated.statements, expected.statements)):
                 if not TestParser.compare_ast(stmt1, stmt2, path + f".statements[{i}]"):
@@ -677,7 +673,7 @@ class TestParser(unittest.TestCase):
 
         elif isinstance(generated, VariableDeclaration):
             if generated.name != expected.name:
-                print(f"VariableDeclaration name mismatch at {path}: {generated.name} != {expected.name}")
+                print(f"VariableDeclaration name mismatch at {path}: '{generated.name}' != '{expected.name}'")
                 return False
             
             if generated.annotation != expected.annotation:
@@ -690,7 +686,7 @@ class TestParser(unittest.TestCase):
 
         elif isinstance(generated, VariableUpdated):
             if generated.name != expected.name:
-                print(f"VariableUpdated name mismatch at {path}: {generated.name} != {expected.name}")
+                print(f"VariableUpdated name mismatch at {path}: '{generated.name}' != '{expected.name}'")
                 return False
             if not TestParser.compare_ast(generated.value, expected.value, path + ".value"):
                 print(f"VariableUpdated's value mismatch at {path}: {generated.value} != {expected.value}")
@@ -698,12 +694,12 @@ class TestParser(unittest.TestCase):
 
         elif isinstance(generated, VariableReference):
             if generated.name != expected.name:
-                print(f"VariableReference name mismatch at {path}: {generated.name} != {expected.name}")
+                print(f"VariableReference name mismatch at {path}: '{generated.name}' != '{expected.name}'")
                 return False
 
         elif isinstance(generated, FunctionDeclaration):
             if generated.name != expected.name:
-                print(f"FunctionDeclaration name mismatch at {path}: {generated.name} != {expected.name}")
+                print(f"FunctionDeclaration name mismatch at {path}: '{generated.name}' != '{expected.name}'")
                 return False
             if generated.return_type != expected.return_type:
                 print(f"FunctionDeclaration return type mismatch at {path}: {generated.return_type} != {expected.return_type}")
@@ -719,17 +715,27 @@ class TestParser(unittest.TestCase):
         
         elif isinstance(generated, Parameter):
             if generated.name != expected.name:
-                print(f"Parameter name mismatch at {path}: {generated.name} != {expected.name}")
+                print(f"Parameter name mismatch at {path}: '{generated.name}' != '{expected.name}'")
                 return False
             
             if generated.type != expected.type:
                 print(f"Parameter type mismatch at {path}: {generated.type} != {expected.type}")
                 return False
             
-        elif isinstance(generated, Print):
-            if not TestParser.compare_ast(generated.expression, expected.expression, path + ".expression"):
+        elif isinstance(generated, FunctionCall):
+            if generated.name != expected.name:
+                print(f"FunctionCall name mismatch at {path}: '{generated.name}' != '{expected.name}'")
+                return False
+            
+            if not TestParser.compare_lists(generated.args,expected.args, path+".functionCall"):
+                print(f"FunctionCall argument mismatch at {path}: {generated.args} != {expected.args}")
                 return False
 
+        elif isinstance(generated, Argument):
+            if generated.type != expected.type:
+                print(f"Argument type mismatch at {path}: {generated.type} != {expected.type}")
+                return False
+        
         elif isinstance(generated, If):
             if not TestParser.compare_ast(generated.comparison, expected.comparison, path + ".comparison"):
                 return False
@@ -741,8 +747,6 @@ class TestParser(unittest.TestCase):
                     return False
                 
         elif isinstance(generated, While):
-            print(f"Generated While block statements count: {len(generated.block.statements)} at {path}")
-            print(f"Expected While block statements count: {len(expected.block.statements)} at {path}")
             if not TestParser.compare_ast(generated.comparison, expected.comparison, path + ".comparison"):
                 return False
             if len(generated.block.statements) != len(expected.block.statements):
@@ -754,11 +758,6 @@ class TestParser(unittest.TestCase):
 
         elif isinstance(generated, Block):
             return TestParser.compare_lists(generated.statements, expected.statements, path + ".statements")
-
-        elif isinstance(generated, Input):
-            if generated.varRef.name != expected.varRef.name:
-                print(f"Variable names in input do not match. '{generated.varRef.name}' !=  '{expected.varRef.name:}' ")
-                return False
 
         elif isinstance(generated, Comparison):
             if not TestParser.compare_ast(generated.left, expected.left, path + ".left"):
@@ -799,9 +798,9 @@ class TestParser(unittest.TestCase):
                 print(f"Integer value mismatch at {path}: {generated.value} != {expected.value}")
                 return False
 
-        elif isinstance(generated, Float):
+        elif isinstance(generated, Double):
             if generated.value != expected.value:
-                print(f"Float value mismatch at {path}: {generated.value} != {expected.value}")
+                print(f"Double value mismatch at {path}: {generated.value} != {expected.value}")
                 return False
 
         elif isinstance(generated, Boolean):

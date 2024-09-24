@@ -161,7 +161,7 @@ class Parser:
             return True
     
     # TODO: ensure works
-    def IdentSuggestions(self):
+    def identSuggestions(self):
         ident_name = {
             "print" : "Did you mean to call the print function? Please dont forget the enclosing parenthesis: 'print(...)'",
             "input" : "Did you mean to call the input function? Please dont forget the enclosing parenthesis: 'input(...)"
@@ -385,7 +385,7 @@ class Parser:
                     self.currentNode = None
 
                 else:
-                    if self.IdentSuggestions() is None:
+                    if self.identSuggestions() is None:
                         report(f"Invalid token after the identifier '{name}'. Allowed operations with Identifiers: [Assignment, Increment, Decrement, MethodCalls, FunctionCalls] ",type_="Syntax",line=self.lineNumber)
                     self.panic()
                 
@@ -469,8 +469,8 @@ class Parser:
 
             for var in variables:
                 var_node = VariableDeclaration(var, None, annotation=type_tag, line=self.lineNumber)
-                expr.parent = var_node
-                var_node.value = expr
+                var_expr.parent = var_node
+                var_node.value = var_expr
                 nodes.append(var_node)
                 
             return nodes
