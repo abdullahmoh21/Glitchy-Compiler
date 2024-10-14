@@ -9,7 +9,7 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'glitchy=Compiler.compile:main',  # so you can call from any directory
+            'glitchy=Compiler.compile:main', # Command to run glitchy from anywhere
         ]
     },
     include_package_data=True,

@@ -1,7 +1,7 @@
 import sys
 import re
-from Lexer import *
-from utils import *
+from Compiler.Lexer import *
+from Compiler.utils import *
 
 class Parser:
     def __init__(self, lexer):
@@ -112,7 +112,6 @@ class Parser:
             
             if self.checkToken(TokenType.NEWLINE):
                 self.nextToken()  
-        print(f"Exiting panic mode on token: {self.currentToken.value}")
 
     def nl(self):
         """ Continues to remove whitespace until another token type is found """

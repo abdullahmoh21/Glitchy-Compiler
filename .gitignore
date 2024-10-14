@@ -1,5 +1,6 @@
 __pycache__
 .vscode
+.coverage
 run.py
 TODO
 unecessary

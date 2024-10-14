@@ -1,6 +1,5 @@
 // program to calculate the Collatz Conjecture
 function void collatz(n:int) {
-    print("Starting number: " + n)
     set steps = 0
 
     while (n != 1) {
@@ -9,12 +8,11 @@ function void collatz(n:int) {
         } else {
             n = n * 3 + 1
         }
-        print("Next number: " + n)
         steps++
     }
 
-    print("Collatz Conjecture completed in " + steps + " steps.")
+    print(steps)
 }
 
-set num = input().toInteger()
-collatz(num)
+
+collatz(1000)

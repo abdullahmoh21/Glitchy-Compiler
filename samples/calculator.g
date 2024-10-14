@@ -1,3 +1,4 @@
+// basic calculator
 function void calculator() {
     print("Welcome to the calculator")
     

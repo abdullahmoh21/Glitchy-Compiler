@@ -1,4 +1,4 @@
-// program to check if input value is prime
+// expected output: true
 function bool isPrime(n:int) {
     if (n <= 1) {
         return false
@@ -12,9 +12,4 @@ function bool isPrime(n:int) {
     return true
 }
 
-set num = input().toInteger()
-if (isPrime(num)) {
-   print(num + " is a prime number")
-} else {
-   print(num + " is not a prime number")
-}
+print(isPrime(997))

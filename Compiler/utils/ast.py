@@ -101,7 +101,7 @@ class VariableReference(ASTNode):
         return (isinstance(other, VariableReference) and self.name == other.name)
         
     def __str__(self):
-        return  f"{str(self.value)}" if self.value is not None else f"{str(self.name)}"
+        return f"{str(self.name)}"
         
     def __repr__(self):
         return  f"VariableReference({self.name})"
@@ -176,8 +176,8 @@ class FunctionDeclaration(ASTNode):
         self.block.print_content(indent + 2)
 
 class Return(ASTNode):
-    def __init__(self, expression, line = None):
-        self.value = expression
+    def __init__(self, value, line = None):
+        self.value = value
         self.line = line
      
     def evaluateType(self):
@@ -243,7 +243,7 @@ class Parameter(ASTNode):
         print(" " * indent + f"Parameter: {self.name} (type: {self.type})")
 
 class FunctionCall(ASTNode):
-    def __init__(self, name, args, parent, line=None):
+    def __init__(self, name, args, parent=None, line=None):
         self.name = name
         self.args = args
         self.arity = len(args)
@@ -336,12 +336,13 @@ class Argument(ASTNode):
         self.name = name
         self.value = value
         self.parent = None
-        self.type = None
+        self.cached_type = None
     
     def evaluateType(self):
-        if self.type is not None:
-            return self.type
-        return 'invalid'
+        if self.cached_type is not None:
+            return self.cached_type
+        else:
+            return self.value.evaluateType()
     
     def __str__(self):
         if isinstance(self.value, list):
@@ -416,7 +417,7 @@ class If(ASTNode):
     def __init__(self, comparison, block, line=None, elifNodes=[], elseBlock=None):
         self.comparison = comparison
         self.block = block
-        self.elifNodes = elifNodes
+        self.elifNodes = elifNodes  # an array of tuples in format: (comparison, block)
         self.elseBlock = elseBlock
         self.line = line
     
@@ -759,6 +760,7 @@ class Primary(ASTNode):
     def __init__(self, value, line=None):
         self.value = value
         self.line = line
+        self.type = self.evaluateType()
 
     def __eq__(self, other):
         return isinstance(other, Primary) and self.value == other.value and self.line == other.line

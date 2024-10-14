@@ -1,3 +1,4 @@
+// Tower of hanoi game
 function void hanoi(n:int, fromPeg:int, toPeg:int, auxPeg:int) {
     if (n == 1) {
         print("Move disk 1 from peg " + fromPeg + " to peg " + toPeg)

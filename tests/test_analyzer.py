@@ -1,189 +1,278 @@
 import unittest
-from Error import *
-from Ast import *
-from SemanticAnalyzer import SemanticAnalyzer
+from Compiler.utils import *
+from Compiler.Analyzer import *
 
-# TODO: edit to check for errors thrown instead of console logs
+class TestAnalyzer(unittest.TestCase):
+    def setUp(self):
+        error.clear_errors()
 
-class SemanticAnalyzerTests(unittest.TestCase):
+    def test_duplicate_variable(self):
+        ast = Program([
+            VariableDeclaration('x', Integer(5)),
+            VariableDeclaration('x', Integer(10), line=2),  # Duplicate variable declaration
+        ])
+        analyzer = SemanticAnalyzer(ast)
+        symbol_table = analyzer.analyze()
+        self.assertTrue(error.has_error_occurred())
+        self.assertTrue(any("ReferenceError: The name 'x' on line 2 is already defined." in e for e in error.get_errors()))
+
+    def test_invalid_comparison(self):
+        ast = Program([
+            VariableDeclaration('a', String("hello")),
+            VariableDeclaration('b', Integer(2), line=2),
+            FunctionCall('print',[Argument(Comparison(VariableReference('a', 3), '<', VariableReference('b', 3), line=3))], None, line=3),
+        ])
+        analyzer = SemanticAnalyzer(ast)
+        symbol_table = analyzer.analyze()
+        self.assertTrue(error.has_error_occurred())
+        self.assertTrue(any("Type mismatch in comparison" in e for e in error.get_errors()))
+
+    def test_logical_operation(self):
+        ast = Program([
+            VariableDeclaration('a', Boolean('true')),    # set a = true
+            VariableDeclaration('b', Boolean('false')),   # set b = false
+            FunctionCall('print',[Argument(LogicalOp(VariableReference('a'), '&&', VariableReference('b')))], None),    # print(a && b)
+        ])
+        analyzer = SemanticAnalyzer(ast)
+        symbol_table = analyzer.analyze()
+        self.assertFalse(error.has_error_occurred())
+        self.assertIsNotNone(symbol_table)
+        self.assertIsNotNone(symbol_table.isDeclared('a'))
+        self.assertIsNotNone(symbol_table.isDeclared('b'))
+        self.assertEqual(symbol_table.getType('a'), 'boolean')
+        self.assertEqual(symbol_table.getType('b'), 'boolean')
+
+    def test_invalid_logical_operation(self):
+        ast = Program([
+            VariableDeclaration('a', Integer(1),line=1),
+            VariableDeclaration('b', Boolean('false'),line=2),
+            FunctionCall('print',[Argument(LogicalOp(VariableReference('a',line=3), '&&', VariableReference('b',line=3),line=3))], None,line=3),
+        ])
+        analyzer = SemanticAnalyzer(ast)
+        symbol_table = analyzer.analyze()
+        self.assertTrue(error.has_error_occurred())
+        self.assertTrue(any("TypeError: Invalid expression on line 3. Please ensure correct types are being compared: 'a' '&&' 'b'" in e for e in error.get_errors()))
+
+    def test_variable_incorrect_type(self):
+        ast = Program([
+            VariableDeclaration('x', Double(3.5),annotation="integer")
+        ])
+        analyzer = SemanticAnalyzer(ast)
+        analyzer.analyze()
+        self.assertTrue(error.has_error_occurred())
+        self.assertTrue(any("TypeError: Variable 'x' expects type 'integer but got expression: '3.5' of type 'double'" in e for e in error.get_errors()))
+
+    def test_undefined_variable_usage(self):
+        ast = Program([
+            VariableUpdated('y', Integer(1))
+        ])
+        analyzer = SemanticAnalyzer(ast)
+        analyzer.analyze()
+        self.assertTrue(error.has_error_occurred())
+        self.assertTrue(any("ReferenceError: Variable 'y' does not exist in this scope" in e for e in error.get_errors()))
+
+    def test_variable_redefinition(self):
+        ast = Program([
+            VariableDeclaration('z', Integer(10),line=1),
+            VariableDeclaration('z', Double(10.5),line=1)
+        ])
+        analyzer = SemanticAnalyzer(ast)
+        analyzer.analyze()
+        self.assertTrue(error.has_error_occurred())
+        self.assertTrue(any("ReferenceError: The name 'z' on line 1 is already defined." in e for e in error.get_errors()))
+
+    def test_variable_shadowing(self):
+        ast = Program([
+            VariableDeclaration('a', Integer(5)),
+            FunctionDeclaration('testScope', 'void', [], Block([
+                VariableDeclaration('a', Double(5.0))
+            ]))
+        ])
+        analyzer = SemanticAnalyzer(ast)
+        analyzer.analyze()
+        self.assertFalse(error.has_error_occurred())
+
+    def test_invalid_function_call(self):
+        ast = Program([
+            FunctionCall('foo', [],line=1),
+            FunctionDeclaration('foo', 'void', [], Block([]),line=2)
+        ])
+        analyzer = SemanticAnalyzer(ast)
+        analyzer.analyze()
+        self.assertTrue(error.has_error_occurred())
+        self.assertTrue(any("ReferenceError: Incorrect Function Call on line 1. A function with name 'foo' does not exists." in e for e in error.get_errors()))
+
+    def test_function_return(self):
+        ast = Program([
+            FunctionDeclaration('add', 'integer', [Parameter('x', 'integer'), Parameter('y', 'integer')], Block([
+                VariableDeclaration('sum', BinaryOp(VariableReference('x'), '+', VariableReference('y')))
+            ]), line=1)
+        ])
+        analyzer = SemanticAnalyzer(ast)
+        analyzer.analyze()
+        self.assertTrue(error.has_error_occurred())
+        self.assertTrue(any("ReturnError: Not all branches in the function 'add' return correctly" in e for e in error.get_errors()))
+
+    def test_function_return_1(self):
+        ast = Program([
+            FunctionDeclaration('testFunc', 'integer', [], Block([
+                If(
+                    Comparison(Integer(1), '<', Integer(2)),  # Condition always true
+                    Block([Return(Integer(1))]),  # This branch returns
+                    Block([  # The else branch does not return
+                        FunctionCall('print', [Argument(String("No return here"))], None, line=3)
+                    ])
+                )
+            ]), line=2),
+            FunctionCall('testFunc', [], None, line=5)
+        ])
+        analyzer = SemanticAnalyzer(ast)
+        analyzer.analyze()
+        self.assertTrue(error.has_error_occurred())
+        self.assertTrue(any("Not all branches in the function 'testFunc' return correctly" in e for e in error.get_errors()))
+
+    def test_function_return_2(self):
+        ast = Program([
+            FunctionDeclaration('checkValue', 'integer', [], Block([
+                VariableDeclaration('x', Integer(10), line=2),
+                If(
+                    Comparison(VariableReference('x'), '==', Integer(10)),
+                    Block([Return(Integer(10))]),  # Return in if branch
+                    [  # Elif with no return
+                        If(
+                            Comparison(VariableReference('x'), '==', Integer(5)),
+                            Return(Integer(5)),  # Return in elif branch
+                            # No else block or return
+                        )
+                    ]
+                )
+            ]), line=1),
+            FunctionCall('checkValue', [], None, line=4)
+        ])
+        analyzer = SemanticAnalyzer(ast)
+        analyzer.analyze()
+        self.assertTrue(error.has_error_occurred())
+        self.assertTrue(any("Not all branches in the function 'checkValue' return correctly" in e for e in error.get_errors()))
+
+    def test_function_return_3(self):
+        ast = Program([
+            FunctionDeclaration('loopFunc', 'integer', [], Block([
+                While(
+                    Comparison(Integer(15), '<', Integer(10)),
+                    Block([
+                        If(
+                            Comparison(Integer(10), '==', Integer(5)),
+                            Return(Integer(5)),  # Return when i is 5
+                            # No else block or return
+                        )
+                    ])
+                )
+            ]), line=1),
+            FunctionCall('loopFunc', [], None, line=5)
+        ])
+        analyzer = SemanticAnalyzer(ast)
+        analyzer.analyze()
+        self.assertTrue(error.has_error_occurred())
+        self.assertTrue(any("Not all branches in the function 'loopFunc' return correctly" in e for e in error.get_errors()))
+
+    def test_function_return_4(self):
+        ast = Program([
+            FunctionDeclaration('exampleFunc', 'integer', [], Block([
+                If(
+                    Comparison(Integer(10), '>', Integer(0)),
+                    Block([Return(Integer(1))]),
+                    elseBlock=Block([Return(Integer(2))])  # Return in else block
+                )
+            ]), line=1),
+            FunctionCall('exampleFunc', [], None, line=4)
+        ])
+        analyzer = SemanticAnalyzer(ast)
+        analyzer.analyze()
+        self.assertFalse(error.has_error_occurred())  # Should pass, since all paths return
+
+    def test_function_return_5(self):
+        ast = Program([
+            FunctionDeclaration('multiCheck', 'integer', [], Block([
+                If(
+                    Comparison(Integer(10), '==', Integer(0)),
+                    Block([Return(Integer(0))]),  # Return in if branch
+                    If(
+                        Comparison(Integer(10), '==', Integer(1)),
+                        Block([Return(Integer(1))]),  # Return in nested if branch
+                        # No else block or return
+                    )
+                )
+            ]), line=1),
+            FunctionCall('multiCheck', [], None, line=4)
+        ])
+        analyzer = SemanticAnalyzer(ast)
+        analyzer.analyze()
+        self.assertTrue(error.has_error_occurred())
+        self.assertTrue(any("Not all branches in the function 'multiCheck' return correctly" in e for e in error.get_errors()))
     
-    def test_analyze_no_errors(self):
-        # Create a valid AST
+    def test_function_return_6(self):
         ast = Program([
-            VariableDeclaration('x', 'integer', Integer(5)),
-            VariableDeclaration('y', 'integer', Integer(10)),
-            VariableUpdated('x', 'integer', Integer(7)),
-            VariableReference('x'),
-            Print(VariableReference('y'))
+            FunctionDeclaration('square', 'integer', [], Block([
+                Return(String("text"),line=2)
+            ]),line=1)
         ])
-        
-        # Create a semantic analyzer
         analyzer = SemanticAnalyzer(ast)
-        
-        # Analyze the AST
-        symbol_table = analyzer.analyze()
-        
-        # Assert that no errors occurred
-        self.assertFalse(error.has_error_occurred())
-        
-        # Assert that the symbol table is not None
-        self.assertIsNotNone(symbol_table)
-        
-        # Assert that the symbol table contains the expected variables
-        self.assertIn('x', symbol_table.symbols)
-        self.assertIn('y', symbol_table.symbols)
-        
-        # Assert that the variables have the expected types
-        self.assertEqual(symbol_table.symbols['x'], 'integer')
-        self.assertEqual(symbol_table.symbols['y'], 'integer')
-        
-        # Assert that the variables have been declared and used
-        self.assertTrue(symbol_table.isDeclared('x'))
-        self.assertTrue(symbol_table.isDeclared('y'))
-        self.assertTrue(symbol_table.is_used('x'))
-        self.assertTrue(symbol_table.is_used('y'))
-        
-    def test_analyze_with_errors(self):
-        # Create an AST with errors
-        ast = Program([
-            VariableDeclaration('x', 'integer', Integer(5)),
-            VariableDeclaration('x', 'integer', Integer(10)),  # Duplicate variable declaration
-            VariableUpdated('y', 'integer', Integer(7)),  # Variable not declared
-            VariableReference('z')  # Variable not declared
-        ])
-        
-        # Create a semantic analyzer
-        analyzer = SemanticAnalyzer(ast)
-        
-        # Analyze the AST
-        symbol_table = analyzer.analyze()
-        
-        # Assert that errors occurred
+        analyzer.analyze()
         self.assertTrue(error.has_error_occurred())
-        
-        # Assert that the symbol table is None
-        self.assertIsNone(symbol_table)
-        
-        # Assert that the expected errors were reported
-        self.assertIn("Variable 'x' (Line number: 3) is already defined.", error.get_errors())
-        self.assertIn("Variable 'y' (Line number: 4) has not been defined.", error.get_errors())
-        self.assertIn("Variable 'z' (Line number: 5) is used before it is defined.", error.get_errors())
+        self.assertTrue(any("TypeError: Return Type error on line 2. Expected return of type 'integer' for function 'square' got: 'string' instead." in e for e in error.get_errors()))
 
-    def test_analyze_float_integer_comparison(self):
-        # Create a valid AST with float and integer comparison
+    def test_invalid_argument_type(self):
         ast = Program([
-            VariableDeclaration('a', 'float', Float(2.5)),
-            VariableDeclaration('b', 'integer', Integer(2)),
-            VariableReference('a'),
-            VariableReference('b'),
-            Print(Comparison(VariableReference('b'), '<', VariableReference('a')))
+            FunctionDeclaration('testFunc', 'void', [Parameter('x', 'integer')], Block([
+                FunctionCall('print',[Argument(VariableReference('x'))])
+            ])),
+            FunctionCall('testFunc', [String("string")],line=3)
         ])
-        
-        # Create a semantic analyzer
         analyzer = SemanticAnalyzer(ast)
-        
-        # Analyze the AST
-        symbol_table = analyzer.analyze()
-        
-        # Assert that no errors occurred
-        self.assertFalse(error.has_error_occurred())
-        
-        # Assert that the symbol table is not None
-        self.assertIsNotNone(symbol_table)
-        
-        # Assert that the symbol table contains the expected variables
-        self.assertIn('a', symbol_table.symbols)
-        self.assertIn('b', symbol_table.symbols)
-        
-        # Assert that the variables have the expected types
-        self.assertEqual(symbol_table.symbols['a'], 'float')
-        self.assertEqual(symbol_table.symbols['b'], 'integer')
-        
-        # Assert that the variables have been declared and used
-        self.assertTrue(symbol_table.isDeclared('a'))
-        self.assertTrue(symbol_table.isDeclared('b'))
-        self.assertTrue(symbol_table.is_used('a'))
-        self.assertTrue(symbol_table.is_used('b'))
-        
-    def test_analyze_invalid_comparison(self):
-        # Create an AST with invalid comparison
-        ast = Program([
-            VariableDeclaration('a', 'string', String("hello")),
-            VariableDeclaration('b', 'integer', Integer(2)),
-            Print(Comparison(VariableReference('a'), '<', VariableReference('b')))
-        ])
-        
-        # Create a semantic analyzer
-        analyzer = SemanticAnalyzer(ast)
-        
-        # Analyze the AST
-        symbol_table = analyzer.analyze()
-        
-        # Assert that errors occurred
+        analyzer.analyze()
         self.assertTrue(error.has_error_occurred())
-        
-        # Assert that the symbol table is None
-        self.assertIsNone(symbol_table)
-        
-        # Assert that the expected error was reported
-        self.assertIn("Invalid types for comparison: string < integer", error.get_errors())
+        self.assertTrue(any("TypeError: Incorrect Function Call on line 3. Expected type 'integer' for parameter 'x' got type 'string'" in e for e in error.get_errors()))
 
-    def test_analyze_logical_operation(self):
-        # Create a valid AST with logical operation
+    def test_missing_argument(self):
         ast = Program([
-            VariableDeclaration('a', 'boolean', Boolean(True)),
-            VariableDeclaration('b', 'boolean', Boolean(False)),
-            Print(LogicalOp(VariableReference('a'), '&&', VariableReference('b')))
+            FunctionDeclaration('testFunc', 'void', [Parameter('x', 'integer')], Block([
+                FunctionCall('print',[Argument(VariableReference('x'))], None,line=1),
+            ]),line=1),
+            FunctionCall('testFunc', [], None,line=3)
         ])
-        
-        # Create a semantic analyzer
         analyzer = SemanticAnalyzer(ast)
-        
-        # Analyze the AST
-        symbol_table = analyzer.analyze()
-        
-        # Assert that no errors occurred
-        self.assertFalse(error.has_error_occurred())
-        
-        # Assert that the symbol table is not None
-        self.assertIsNotNone(symbol_table)
-        
-        # Assert that the symbol table contains the expected variables
-        self.assertIn('a', symbol_table.symbols)
-        self.assertIn('b', symbol_table.symbols)
-        
-        # Assert that the variables have the expected types
-        self.assertEqual(symbol_table.symbols['a'], 'boolean')
-        self.assertEqual(symbol_table.symbols['b'], 'boolean')
-        
-        # Assert that the variables have been declared and used
-        self.assertTrue(symbol_table.isDeclared('a'))
-        self.assertTrue(symbol_table.isDeclared('b'))
-        self.assertTrue(symbol_table.is_used('a'))
-        self.assertTrue(symbol_table.is_used('b'))
-        
-    def test_analyze_invalid_logical_operation(self):
-        # Create an AST with invalid logical operation
-        ast = Program([
-            VariableDeclaration('a', 'integer', Integer(1)),
-            VariableDeclaration('b', 'boolean', Boolean(False)),
-            Print(LogicalOp(VariableReference('a'), '&&', VariableReference('b')))
-        ])
-        
-        # Create a semantic analyzer
-        analyzer = SemanticAnalyzer(ast)
-        
-        # Analyze the AST
-        symbol_table = analyzer.analyze()
-        
-        # Assert that errors occurred
+        analyzer.analyze()
         self.assertTrue(error.has_error_occurred())
-        
-        # Assert that the symbol table is None
-        self.assertIsNone(symbol_table)
-        
-        # Assert that the expected error was reported
-        self.assertIn("Type mismatch in logical operation: integer && boolean", error.get_errors())
+        self.assertTrue(any("ArgumentError on line 3: Function 'testFunc' expects 1 arguments but received 0 arguments" in e for e in error.get_errors()))
+
+    def test_correct_recursion(self):
+        ast = Program([
+            FunctionDeclaration('factorial', 'integer', [Parameter('n', 'integer')], Block([
+                If(
+                    Comparison(Integer(10), '<=', Integer(1)),
+                    Block([Return(Integer(1))]),
+                    elseBlock=Block([
+                        Return(BinaryOp(Integer(10), '*', FunctionCall('factorial', [BinaryOp(Integer(10), '-', Integer(1))])))
+                    ])
+                )
+            ])),
+            FunctionCall('factorial', [Argument(Integer(5))])
+        ])
+        analyzer = SemanticAnalyzer(ast)
+        analyzer.analyze()
+        self.assertFalse(error.has_error_occurred())
+
+    def test_invalid_recursion_call(self):
+        ast = Program([
+            FunctionDeclaration('factorial', 'int', [Parameter('n', 'int')], Block([
+                Return(FunctionCall('factorial', []))
+            ])),
+            FunctionCall('factorial', [Argument(Integer(5))], None)
+        ])
+        analyzer = SemanticAnalyzer(ast)
+        analyzer.analyze()
+        self.assertTrue(error.has_error_occurred())
+        self.assertTrue(any("ArgumentError: Function 'factorial' expects 1 arguments but received 0 arguments" in e for e in error.get_errors()))
 
 if __name__ == '__main__':
     unittest.main()

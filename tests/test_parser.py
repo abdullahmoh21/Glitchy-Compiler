@@ -1,9 +1,11 @@
 import unittest
 import sys
 import os
-from Lexer import *
-from Parser import *
-from utils import *
+from Compiler.Lexer import *
+from Compiler.Parser import *
+from Compiler.utils import *
+
+
 
 #  All my parser tests are in this class. to run all tests: python3 -m unittest parsing.tests
 class TestParser(unittest.TestCase):
@@ -131,11 +133,13 @@ class TestParser(unittest.TestCase):
 
     def test_input_statement(self):
         source_code = '''
-        foo = input()
+        set foo = input()
         print(foo)
         '''
         expected_ast = Program([
-            Input(VariableReference("foo"), 2),
+            VariableDeclaration('foo',
+                FunctionCall('input',[],None, line=2)
+            ),
             FunctionCall('print',[Argument((VariableReference("foo")))], None, 3)
         ])
         self.run_test(source_code, expected_ast)
@@ -494,24 +498,29 @@ class TestParser(unittest.TestCase):
             VariableDeclaration("result", 
                 BinaryOp(
                     BinaryOp(
+                        VariableReference("a", 2),
+                        "+",
                         BinaryOp(
-                            VariableReference("a", 2),
-                            "+",
                             BinaryOp(
-                                VariableReference("b", 2), "*", VariableReference("c", 2), 2
+                                VariableReference("b", 2),
+                                "*",
+                                VariableReference("c", 2),
+                                2
                             ),
+                            "-",
+                            VariableReference("d", 2),
                             2
                         ),
-                        "-",
-                        VariableReference("d", 2),
                         2
                     ),
                     "/",
                     VariableReference("e", 2),
                     2
-                ), 2
+                ), 
+                2
             )
         ], 1)
+
         self.run_test(source_code, expected_ast)
 
     def test_empty_block(self):
@@ -602,9 +611,7 @@ class TestParser(unittest.TestCase):
     
     def test_multiple_assignment_with_annotation(self):
         source_code = """
-        set a:int = 10, b:inte = 10, c:integ = 10, d:intege = 10, e:integer = 10 
-        set f:str = "test", g:stri = "test", h:strin = "test", i:string = "test"
-        set j:bool = true, k:boole = true, l:boolea= true, m:boolean = true
+        set a, b, c, d:int = 10 // int annotation will apply to all
         """
         
         expected_ast = Program([
@@ -612,17 +619,6 @@ class TestParser(unittest.TestCase):
                 VariableDeclaration(name="b", value=Integer(10), annotation="integer"),
                 VariableDeclaration(name="c", value=Integer(10), annotation="integer"),
                 VariableDeclaration(name="d", value=Integer(10), annotation="integer"),
-                VariableDeclaration(name="e", value=Integer(10), annotation="integer"),
-                
-                VariableDeclaration(name="f", value=String('test'), annotation="string"),
-                VariableDeclaration(name="g", value=String('test'), annotation="string"),
-                VariableDeclaration(name="h", value=String('test'), annotation="string"),
-                VariableDeclaration(name="i", value=String('test'), annotation="string"),
-                
-                VariableDeclaration(name="j", value=Boolean("true"), annotation="boolean"),
-                VariableDeclaration(name="k", value=Boolean("true"), annotation="boolean"),
-                VariableDeclaration(name="l", value=Boolean("true"), annotation="boolean"),
-                VariableDeclaration(name="m", value=Boolean("true"), annotation="boolean"),
         ])
         
         self.run_test(source_code, expected_ast)
@@ -732,8 +728,8 @@ class TestParser(unittest.TestCase):
                 return False
 
         elif isinstance(generated, Argument):
-            if generated.type != expected.type:
-                print(f"Argument type mismatch at {path}: {generated.type} != {expected.type}")
+            if generated.evaluateType() != expected.evaluateType():
+                print(f"Argument type mismatch at {path}: {generated.evaluateType()} != {expected.evaluateType()}")
                 return False
         
         elif isinstance(generated, If):

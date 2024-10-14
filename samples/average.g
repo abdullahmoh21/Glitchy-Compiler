@@ -1,3 +1,4 @@
+// program to calculate average of a set of numbers
 set sum:double = 0.0
 set count:double = 0.0
 

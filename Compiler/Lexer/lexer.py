@@ -1,6 +1,5 @@
 import sys
-from utils.TokenTable import Token, TokenType
-from utils import report, TokenTable
+from Compiler.utils import *
 
 class Lexer:
     def __init__(self, source): 

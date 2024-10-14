@@ -2,21 +2,21 @@ import argparse
 import os
 import llvmlite.ir as ir
 import llvmlite.binding as llvm
-from utils import error
-from Lexer import *
-from Parser import *
-from Analyzer import *
-from Generator import *
 from collections import deque
+from Compiler.Lexer import *
+from Compiler.Parser import *
+from Compiler.Analyzer import *
+from Compiler.Generator import *
+from Compiler.utils import *
 from ctypes import CFUNCTYPE, c_void_p
 
+log_queue = deque()
 COLORS = {
     'red': "\033[31m",
     'green': "\033[32m",
     'blue': "\033[34m",
     'reset': "\033[0m"
 }
-
 
 def compile(source_code, log_level):
     LOG_LEVELS = {
@@ -26,72 +26,89 @@ def compile(source_code, log_level):
         3: "Full information"
     }
 
-    log_queue = deque()
-
     def log(message, level, color='reset', immediate=False, action=None):
         if level <= log_level:
             if immediate:
                 print(f"{COLORS[color]}{message}{COLORS['reset']}")
                 if action:
-                    action() 
+                    action()
             else:
                 log_queue.append((message, color, action))  # Add callable action to queue
-
-    # Lexer and parsing phase
+    # Parsing
     lexer = Lexer(source_code)
     parser = Parser(lexer)
     ast = parser.parse()
 
     if has_error_occurred():
+        flush_logs()
         return 
 
     log("Parsing completed!", 1, 'green', immediate=True)
     log("Initial AST generated:", 2, 'blue', action=lambda: ast.print_content())  
 
-    # Semantic analysis phase
+    # Semantic analysis 
     analyzer = SemanticAnalyzer(ast)
     symbol_table = analyzer.analyze()
 
     if has_error_occurred():
+        flush_logs()
         return  
 
     log("Semantic analysis completed!", 1, 'green', immediate=True)
     log("The following Symbol table was returned:", 2, 'blue', action=lambda: symbol_table.print_table())  
     log("The analyzer returned this AST:", 3, 'blue', action=lambda: ast.print_content())  
 
+    # LLVM Initialization 
+    try:
+        llvm.initialize()
+        llvm.initialize_native_target()
+        llvm.initialize_native_asmprinter()
+    except Exception as e:
+        log(f"LLVM initialization failed: {str(e)}", 0, 'red', immediate=True)
+        flush_logs()
+        return
+
     # LLVM IR code generation phase
     llvmir_gen = LLVMCodeGenerator(symbol_table)
     llvm_ir = llvmir_gen.generate_code(ast)
 
     if has_error_occurred() or llvm_ir is None:
+        flush_logs()
         return  
 
+    # LLVMIR verification
     try:
+        mod = llvm.parse_assembly(str(llvm_ir))
+        mod.verify()
         log("LLVM IR generated:", 1, 'blue')
         log("---------------------------------------", 1)
         log(None, 1, action=lambda: print(str(llvm_ir)))  
         log("---------------------------------------", 1)
-
-        mod = llvm.parse_assembly(str(llvm_ir))
-        mod.verify()
     except Exception as e:
-        log(f"An error occurred during the LLVM IR verification {e}", 0, 'red', immediate=True)
+        log(f"An error occurred during the LLVM IR verification: {e}", 0, 'red', immediate=True)
+        flush_logs()
+        return  # Return early to avoid running passes on invalid IR
 
-    llvm.initialize()
-    llvm.initialize_native_target()
-    llvm.initialize_native_asmprinter()
+    # optimization passes
+    try:
+        target = llvm.Target.from_default_triple()
+        target_machine = target.create_target_machine()
 
-    target = llvm.Target.from_default_triple()
-    target_machine = target.create_target_machine()
+        # Set up the pass manager and apply optimizations
+        pmb = llvm.create_pass_manager_builder()
+        pmb.opt_level = 3
 
-    pmb = llvm.create_pass_manager_builder()
-    pmb.opt_level = 3
+        pass_manager = llvm.create_module_pass_manager()
+        pmb.populate(pass_manager)
 
-    pass_manager = llvm.create_module_pass_manager()
-    pmb.populate(pass_manager)
-    pass_manager.run(mod)
+        # Run the pass manager
+        pass_manager.run(mod)
+    except Exception as e:
+        log(f"An error occurred during the LLVM optimization pass: {e}", 0, 'red', immediate=True)
+        flush_logs()
+        return  # Avoid proceeding if there's an error
     
-    
+    # print logs
     if not has_error_occurred():
         while log_queue:
             message, color, action = log_queue.popleft()
@@ -100,23 +117,33 @@ def compile(source_code, log_level):
             if action:
                 action()  # Call deferred action (e.g., print AST or LLVM IR)
 
-    if not has_error_occurred():
-        with llvm.create_mcjit_compiler(mod, target_machine) as engine:
-            engine.finalize_object()
-            engine.run_static_constructors()
+    # Mcjit compiler
+    try:
+        if not has_error_occurred():
+            with llvm.create_mcjit_compiler(mod, target_machine) as engine:
+                engine.finalize_object()
+                engine.run_static_constructors()
 
-            try:
                 main_ptr = engine.get_function_address("main")
                 if main_ptr:
                     c_main = CFUNCTYPE(None)(main_ptr)
-                    c_main()
+                    c_main()  # Call the main function
                 else:
                     log("Error: 'main' function not found.", 0, 'red', immediate=True)
-            except Exception as e:
-                log(f"Execution failed: {str(e)}", 0, 'red', immediate=True)
+    except Exception as e:
+        log(f"Execution failed: {str(e)}", 0, 'red', immediate=True)
 
+    # Shutdown LLVM and return stdout
     llvm.shutdown()
 
+def flush_logs():
+    """Flushes the log queue immediately."""
+    while log_queue:
+        message, color, action = log_queue.popleft()
+        if message:
+            print(f"{COLORS[color]}{message}{COLORS['reset']}")
+        if action:
+            action()
 
 def main():
     parser = argparse.ArgumentParser(description='Compile a single .g file to executable.')

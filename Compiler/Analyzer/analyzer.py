@@ -1,6 +1,5 @@
-from utils import *
+from Compiler.utils import *
 import re
-
 
 class SemanticAnalyzer:
     def __init__(self, ast):
@@ -31,7 +30,6 @@ class SemanticAnalyzer:
         
     def visit_program(self, node):
         self.declareBuiltIns()
-        
         try:
             for statement in node.statements:
                 if statement is not None:
@@ -57,15 +55,23 @@ class SemanticAnalyzer:
     def visit_variable(self, node):
         if isinstance(node, VariableDeclaration): 
             if self.symbolTable.inScope(node.name) is not None:
-                throw(ReferenceError(f"The name '{node.name}' on line {node.line} is already defined.")) 
+                throw(ReferenceError(f"The name '{str(node.name)}' on line {node.line} is already defined.")) 
 
             node.value.accept(self)
             data_type = node.evaluateType()
             
             if node.annotation is not None:
                 if node.annotation != data_type:
-                    throw(TypeError(f"Variable '{node.name}' expects type '{node.annotation} but got expression: '{node.value}' of type '{data_type}'", type="Type", line=node.line))
-                    return
+                    if node.annotation == "double" and data_type == "integer":
+                        try:
+                            var_value = node.value
+                            node.value = Double(float(var_value.value))
+                            data_type = "double"
+                        except Exception as e:
+                            throw(CompilationError(f"An error occurred while promoting the int '{str(node.name)}' to a double "),line=node.line)
+                    else:    
+                        throw(TypeError(f"Variable '{str(node.name)}' expects type '{str(node.annotation)}' but got expression: '{str(node.value)}' of type '{str(data_type)}'"),line=node.line)
+                        return
             
             self.symbolTable.add(
                 name=node.name,
@@ -81,12 +87,12 @@ class SemanticAnalyzer:
         elif isinstance(node, VariableUpdated):
             var = self.symbolTable.lookup(node.name)
             if var is None:
-                throw(ReferenceError(f"Variable '{node.name}' does not exist in this scope"),line=node.line) 
+                throw(ReferenceError(f"Variable '{str(node.name)}' does not exist in this scope"),line=node.line) 
             
             node.value.accept(self)
             data_type = node.evaluateType()
             if data_type == 'invalid': 
-                throw(TypeError(f"Could not statically infer the type of variable '{node.name}'. If possible, try adding type hints - you are using glitchy, this is your fault not mine."),line=node.line)
+                throw(TypeError(f"Could not statically infer the type of variable '{str(node.name)}'. If possible, try adding type hints - you are using glitchy, this is your fault not mine."),line=node.line)
             try:
                 symbolTy =  var.get('symbol_type')
                 if symbolTy == 'variable':
@@ -94,7 +100,7 @@ class SemanticAnalyzer:
                     if var_data.get('annotated') is True:
                         expected_type = var_data.get('data_type') 
                         if expected_type != data_type:
-                            throw(TypeError(f"Variable '{node.name}' expects type '{expected_type}' but got expression: '{node.value}' of type '{data_type}'"))
+                            throw(TypeError(f"(update) Variable '{str(node.name)}' expects type '{str(expected_type)}' but got expression: '{str(node.value)}' of type '{str(data_type)}'"))
                             return
                                         
                     if self.isStaticEvaluable(node.value):
@@ -106,7 +112,7 @@ class SemanticAnalyzer:
                     parm_data = var.get('parameter_data')
                     expected_type = parm_data.get('data_type')
                     if expected_type != data_type:
-                        throw(TypeError(f"Parameter '{node.name}' expects type '{expected_type}' but got expression of type '{data_type}'"))
+                        throw(TypeError(f"Parameter '{str(node.name)}' expects type '{str(expected_type)}' but got expression of type '{str(data_type)}'"))
                     
             except Exception as e:
                 throw(e,line=node.line)
@@ -114,7 +120,7 @@ class SemanticAnalyzer:
         elif isinstance(node, VariableReference): 
             symbol = self.symbolTable.lookup(node.name)               
             if symbol is None:
-                throw(ReferenceError(f"Variable '{node.name}' on line {node.line} has not been defined")) 
+                throw(ReferenceError(f"Variable '{str(node.name)}' on line {node.line} has not been defined")) 
             # set type tag so that expression types can be inferred directly without having to lookup value
             if symbol.get('symbol_type') == 'variable':
                 var_data = symbol.get('variable_data')
@@ -158,15 +164,15 @@ class SemanticAnalyzer:
             method_data = MethodTable.get(receiver_type, method_call.name)
             
             if method_data is None:
-                throw(TypeError(f"The method '{str(method_call)}' on line {method_call.line} is not available for type '{receiver_type}'"))
+                throw(TypeError(f"The method '{str(method_call)}' on line {method_call.line} is not available for type '{str(receiver_type)}'"))
 
             if len(method_call.args) != method_data['arity']:
-                throw(ArgumentError(f"The method '{repr(method_call)}' on line {method_call.line} expects {method_data['arity']} argument(s) but got {len(method_call.args)}"))
+                throw(ArgumentError(f"The method '{str(method_call)}' on line {method_call.line} expects {method_data['arity']} argument(s) but got {len(method_call.args)}"))
 
             for arg, expected_param in zip(method_call.args, method_data['parameters']):
                 arg_type = arg.evaluateType()
                 if arg_type != expected_param.type:
-                    throw(ArgumentError(f"Argument '{repr(arg)}' of type '{arg_type}' does not match expected type '{expected_param.type}' for method '{repr(method_call)}' on line {method_call.line}"))
+                    throw(ArgumentError(f"Argument '{str(arg)}' of type '{arg_type}' does not match expected type '{expected_param.type}' for method '{str(method_call)}' on line {method_call.line}"))
             
             method_call.receiverTy = receiver_type
             return method_data['return_type']
@@ -202,16 +208,56 @@ class SemanticAnalyzer:
         self.func_name = node.name
         self.func_params = node.parameters
         self.func_return_type = node.return_type
+
+        # validate returns and visit stmts
+        has_return_statement = self.check_and_visit_statements(node.block)
         
+        if node.return_type != 'void' and has_return_statement == False:
+            throw(ReturnError(f"Not all branches in the function '{node.name}' return correctly"),)
         
-        for statement in node.block.statements:
-            statement.accept(self)
-            
         self.symbolTable.exitScope()
         
         self.func_name = None
         self.func_params = None
         self.func_return_type = None
+        
+    def check_and_visit_statements(self, block):
+        """
+        This function traverses the block of statements once, performing both the visiting of each node (via accept)
+        and ensuring return statements are correctly placed.
+        """
+        has_return = False
+        for stmt in block.statements:
+            stmt.accept(self)  
+            if isinstance(stmt, Return):
+                has_return = True
+            elif isinstance(stmt, If):
+                if_returns = self.check_if_statement(stmt)
+                has_return = has_return or if_returns
+            elif isinstance(stmt, FunctionCall):
+                if stmt.name == self.func_name:
+                    has_return = True
+        return has_return
+
+    def check_if_statement(self, node):
+        """
+        Checks if an `if-elif-else` statement ensures all paths have a return statement.
+        """
+        if_block_has_return = self.check_and_visit_statements(node.block)
+        elif_blocks_have_return = all(self.check_and_visit_statements(elif_block_node) for _, elif_block_node in node.elifNodes)
+
+        if node.elseBlock is not None:
+            else_block_has_return = self.check_and_visit_statements(node.elseBlock)
+        else:
+            else_block_has_return = False  
+            
+        if else_block_has_return:
+            return True
+        if if_block_has_return or elif_blocks_have_return:
+            return False 
+
+        # Raise an error if none of the branches guarantee a return
+        raise ReturnError(f"Not all paths in the if-elif-else block return in function '{self.func_name}'.")
         
     def visit_return(self, node):
         node.value.accept(self)
@@ -224,7 +270,10 @@ class SemanticAnalyzer:
     
     def visit_parameter(self, node):
         if not self.symbolTable.lookup(node.name):
-            throw(SemanticError(f"Parameter '{node.name}' can not be used in this scope"))
+            throw(SemanticError(f"Parameter '{str(node.name)}' can not be used in this scope"))
+        
+    def visit_argument(self, node):
+        node.value.accept(self)
         
     def visit_function_call(self, node):
         func_name = node.name
@@ -236,19 +285,32 @@ class SemanticAnalyzer:
         if symbol and 'function_data' in symbol:
             function = symbol['function_data']
         else:
-            throw(ReferenceError(f"Incorrect Function Call on line {node.line}. A function with name '{node.name}' does not exists."))
+            throw(ReferenceError(f"Incorrect Function Call on line {node.line}. A function with name '{str(node.name)}' does not exists."))
         
         if node.arity != function.get('arity'):
-            throw(ArgumentError(f"Incorrect Function Call on line {node.line}. Function '{func_name}' expects {function['arity']} arguments but received {node.arity} arguments"))
+            throw(ArgumentError(f"Function '{func_name}' expects {function['arity']} arguments but received {node.arity} arguments"),line=node.line)
         
         for received_arg, expected_arg in zip(node.args, function.get('parameters')):
-            received_arg.value.accept(self)
-            if expected_arg.type != 'any':
-                received_arg_type = received_arg.value.evaluateType()
-                if received_arg_type != expected_arg.type:
-                    throw(TypeError(f"Incorrect Function Call on line {node.line}. Expected type '{expected_arg.type}' for parameter '{expected_arg.name}' got type '{received_arg.type}'"))
+            received_arg.accept(self)
+            
+            if expected_arg.type != 'any': 
+                received_arg_type = received_arg.evaluateType()
+                if expected_arg.type == 'double' and received_arg_type == 'integer':
+                    if isinstance(received_arg.value, Integer):
+                        int_ = received_arg.value
+                        received_arg.value = Double(float(int_.value))
+                        received_arg.cached_type = None
+                    elif isinstance(received_arg.value, VariableReference):
+                        var = received_arg.value
+                        received_arg.value = Double(float(var.value)) 
+                        received_arg.cached_type = 'double' 
                 
-        node.type = function.get('return_type', None) 
+                received_arg_type = received_arg.evaluateType() 
+                if received_arg_type != expected_arg.type:
+                    throw(TypeError(f"Incorrect Function Call on line {node.line}. Expected type '{expected_arg.type}' for parameter '{expected_arg.name}' got type '{received_arg_type}'"))
+                    
+        node.type = function.get('return_type', None)
+
     
     def visit_comparison(self, node):
         self.promoteExprInts(node)
@@ -303,9 +365,6 @@ class SemanticAnalyzer:
     # ------------ Helpers ----------------- #
             
     def validateOperation(self, node):
-        if isinstance(node, BinaryOp) and node.transformed:
-            return 
-        
         left, right, operator = node.left, node.right, node.operator
         left_type = left.evaluateType()
         right_type = right.evaluateType()
@@ -313,7 +372,7 @@ class SemanticAnalyzer:
         # Arithmetic
         if operator in ['/', '*', '-', '+', '%', '^']:
             if left_type not in ['integer', 'double'] or right_type not in ['integer', 'double']:
-                throw(TypeError(f"Illegal Binary operation on line {left.line}.\n'{repr(node)}' with types: '{left_type}' '{operator}' '{right_type}'"))
+                throw(TypeError(f"Illegal Binary operation on line {left.line}.\n'{str(node)}' with types: '{left_type}' '{operator}' '{right_type}'"))
                 
             if operator == '^':
                 if left_type != 'double' or right_type != 'double':
@@ -322,53 +381,28 @@ class SemanticAnalyzer:
         # Comparisons
         elif operator in ['==', '!=', '<', '<=', '>', '>=']:
             if left_type != right_type:
-                throw(TypeError(f"Type mismatch in comparison on line {left.line}.\n'{repr(node)}' with type: '{left_type}' '{operator}' '{right_type}'"))
+                if (left_type == 'integer' and right_type == 'double') or (left_type == 'double' and right_type == 'integer'):
+                    pass 
+                else:
+                    throw(TypeError(f"Type mismatch in comparison on line {left.line}. '{str(node)}' with type: '{left_type}' '{operator}' '{right_type}'"))
             elif left_type not in ['integer', 'double', 'string', 'boolean']:
-                throw(TypeError(f"Illegal Comparison on line {left.line}.\n'{repr(node)}' with type: '{left_type}' '{operator}' '{right_type}'"))
-            elif left_type == 'string' and operator not in ['==','!=']:
-                throw(SyntaxError(f"Invalid operator for string comparison on line {left.line}: '{operator}'  Only '==' and '!=' are supported for String comparisons"))
-            elif left_type == 'string' and operator in ['==','!=']:
-                # Special comparisons with type strings returned by typeof(). 'integer' == 'int'
-                if isinstance(left, FunctionCall):
-                    if left.name == 'typeof':
-                        # typeof should already be evaluated and transformed to a string
-                        throw(CompilationError(f"An error occurred during the evaluation of the function call: {str(left)}"))
-                    return 
-                if isinstance(right, FunctionCall):
-                    if right.name == 'typeof':
-                        throw(CompilationError(f"An error occurred during the evaluation of the function call: {str(right)}"))
-                    return
-             
-                if isinstance(left, VariableReference):
-                    if isinstance(left.value, FunctionCall):
-                        if left.value.name == 'typeof':
-                            throw(CompilationError(f"An error occurred during the evaluation of the function call: {str(left)}"))
-                        return 
-                    left = left.value
-                if isinstance(right, VariableReference):
-                    if isinstance(left.value, FunctionCall):
-                        if left.value.name == 'typeof':
-                            throw(CompilationError(f"An error occurred during the evaluation of the function call: {str(left)}"))
-                        return 
-                    right = right.value
-                if left.isTypeStr == True or right.isTypeStr == True:
-                    # special comparisons with typeof: 'integer'  == 'int'
-                    left_ty_str = self.validateTyStr(left.value)
-                    right_ty_str = self.validateTyStr(right.value)
-                    if left_ty_str != 'invalid' or right_ty_str != 'invalid':
-                        left.value = left_ty_str
-                        right.value = right_ty_str
+                throw(TypeError(f"Illegal Comparison on line {left.line}.'{str(node)}' with the evaluated types: '{left_type}' '{operator}' '{right_type}'"))
+            elif left_type == 'string' and operator not in ['==', '!=']:
+                throw(SyntaxError(f"Invalid operator for string comparison on line {left.line}: '{operator}' Only '==' and '!=' are supported for String comparisons"))
+
+            # Handle string comparisons
+            self.handleStringComparison(left, right, node)
 
         # Logical operations
         elif operator in ['&&', '||']:
             if left_type != 'boolean' or right_type != 'boolean':
-                throw(TypeError(f"Logical operation on line {left.line} does not evaluate to boolean, but to: '{node.evaluateType()} \n'{repr(node)}'"))
+                throw(TypeError(f"Invalid expression on line {left.line}. Please ensure correct types are being compared: {str(node)} "))
     
     def ensureBooleanContext(self, node):
         expression_type = node.evaluateType()
         if expression_type != 'boolean':
             formattedType = "Invalid" if (expression_type is None) else expression_type
-            throw(TypeError(f"Expression on line {left.line} does not evaluate to boolean, but to: '{formattedType}'.\n '{repr(node)}'"))
+            throw(TypeError(f"Expression on line {node.left.line} does not evaluate to boolean, but to: '{formattedType}'.\n '{str(node)}'"))
     
     def declareBuiltIns(self):
         for func in BuiltInFunctions.getAll():
@@ -429,13 +463,13 @@ class SemanticAnalyzer:
 
         if operator == '!':
             if operand_type != 'boolean':
-                throw(SemanticError(f"Unary Operation on line {left.line}: '{repr(node)}' does not have a boolean operand, but one of: '{operand_type}'"))
+                throw(SemanticError(f"Unary Operation on line {left.line}: '{str(operator)+str(left)}' does not have a boolean operand, but one of: '{operand_type}'"))
         elif operator == '-' or operator == '+':
             if operand_type not in ['integer', 'double']:
-                throw(SemanticError(f"Unary Operation on line {left.line}: '{repr(node)}' does not have a numeric operand, but one of type: '{operand_type}'"))
+                throw(SemanticError(f"Unary Operation on line {left.line}: '{str(operator)+str(left)}' does not have a numeric operand, but one of type: '{operand_type}'"))
 
         else:
-            throw(SemanticError(f"Invalid Unary Operation on {left.line}: '{repr(node)}' Invalid operator: '{operator}'" ))
+            throw(SemanticError(f"Invalid Unary Operation on {left.line}: '{str(operator)+str(left)}' Invalid operator: '{operator}'" ))
 
     def checkStrcat(self, node):
         """ Transforms BinaryOp to a StringCat node if it is a string operation"""
@@ -653,17 +687,16 @@ class SemanticAnalyzer:
         
         if ty == 'invalid':
             if isinstance(eval_value, VariableReference):
-                throw(Error(f"An error occurred during the evaluation of the typeOf call on line {node.line}: '{repr(eval_value.value)}'"))
+                throw(Error(f"An error occurred during the evaluation of the typeOf call on line {node.line}: '{str(eval_value.value)}'"))
             else:
-                throw(Error(f"An error occurred during the evaluation of the typeOf call on line {node.line}: '{repr(eval_value)}'"))
+                throw(Error(f"An error occurred during the evaluation of the typeOf call on line {node.line}: '{str(eval_value)}'"))
 
         # we flag it as a ty_string so we can do special comparisons like: 'int' == 'integer' => true
         node.replace_with(String(ty,True))
      
     def promoteExprInts(self, node, expr_type=None):
         """
-        Promote integers in exprs that evaluate to double. Will not work on variables
-        if a variable holds an Integer value, this function will not promote it. our runtime will convert these cases
+        Promote integers in exprs that evaluate to double. Will not work on variables, runtime will convert these cases
         """
 
         expr_type = expr_type or node.evaluateType()  # Pass to recursive calls so they know the type of overall expr
@@ -711,7 +744,7 @@ class SemanticAnalyzer:
                         self.promotePowInts(node.right, expr_type)  
                     node.cached_type = None
         else:
-            throw(TypeError(f"Invalid type in exponentiation on line {node.line}: '{repr(node)}' with types'{left_type}' '^' '{right_type}'"))
+            throw(TypeError(f"Invalid type in exponentiation on line {node.line}: '{str(node)}' with types'{left_type}' '^' '{right_type}'"))
     
     def validateTyStr(self, type_string):
         """
@@ -744,3 +777,27 @@ class SemanticAnalyzer:
                 type_tag = 'boolean'      
         
         return type_tag    
+    
+    def handleStringComparison(self, left, right, node):
+        """Handle string comparisons, including special typeof comparisons"""
+        # Check if left or right is a FunctionCall for typeof
+        if (isinstance(left, FunctionCall) and left.name == 'typeof') or \
+        (isinstance(right, FunctionCall) and right.name == 'typeof'):
+            throw(CompilationError(f"An error occurred during the evaluation of the function call: {str(left if isinstance(left, FunctionCall) else right)}"))
+        
+        # Check if left or right is a VariableReference
+        if isinstance(left, VariableReference):
+            left = left.value if left.value is not None else left  # Safely resolve value
+        if isinstance(right, VariableReference):
+            right = right.value if right.value is not None else right  # Safely resolve value
+        
+        # Check for isTypeStr attributes
+        isTypeOf = hasattr(left, "isTypeStr") and left.isTypeStr or \
+                hasattr(right, "isTypeStr") and right.isTypeStr
+
+        if isTypeOf:
+            left_ty_str = self.validateTyStr(left.value)
+            right_ty_str = self.validateTyStr(right.value)
+            if left_ty_str != 'invalid' or right_ty_str != 'invalid':
+                left.value = left_ty_str
+                right.value = right_ty_str          

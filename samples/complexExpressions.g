@@ -1,3 +1,4 @@
+// unnecessarily complex branching
 set a1 = 4, b1 = 3, c1 = 10, d1 = 25 // Expected output: "first if passed"
 if ((a1 + b1 * 2) > 9 && (c1 * d1 - (c1 * d1 / 4) * 4) == 2 && d1 > a1) {
     print("first if passed")
