@@ -47,7 +47,7 @@ def report(message, type_="Complier",error=True, line=None):
     global error_occurred, error_messages
     if error:   # warnings are not errors
         error_occurred = True
-    heading = f"{red}{type_}" if type_ is "Warning" else f"{red}{type_} Error"
+    heading = f"{red}{type_}" if type_ == "Warning" else f"{red}{type_} Error"
     if line is not None:
         error_message = f"{heading} at line {line}: {reset}{message}"
     else:

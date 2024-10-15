@@ -168,6 +168,5 @@ def main():
 
     compile(source_code, log_level=args.log)
 
-
 if __name__ == "__main__":
     main()

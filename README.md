@@ -33,23 +33,22 @@ The primary goal of Glitchy is to demystify the compiler process, which often fe
 - **Basic Constructs**: Includes `if`, `elif`, `else`, `for`, `while` loops, and functions.
 
   ```glitchy
+  set num = 2^2     // '^' is operator for exponents
   if (num > 5) {
       print("Greater than 5")
-  } elif (num ^ 2 == 10) {  // '^' is operator for exponents
-      print("Equal to 5")
+  } elif (num == 4) {
+      print("num is equal to 4")
   } else {
-      print("Less than 5")
+      print("idk")
   }
   ```
 
 - **Glitches**: Introduces unexpected behavior such as variable shuffling, random delays, and unexpected exits, making programming an interactive learning experience.
 
   ```glitchy
-  function void example() {
-      set a = 5
-      set b = 10
-      glitch()  // Could randomly shuffles values of a and b
-      print("a: " + a + ", b: " + b)  // a and b may be shuffled
+  function double example(a:int, b:integer, c:double) {
+        set result = a+b+c
+        return result
   }
   ```
 
