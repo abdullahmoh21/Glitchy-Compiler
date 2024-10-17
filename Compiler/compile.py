@@ -7,6 +7,7 @@ from Compiler.Lexer import *
 from Compiler.Parser import *
 from Compiler.Analyzer import *
 from Compiler.Generator import *
+from Compiler.Glitch import *
 from Compiler.utils import *
 from ctypes import CFUNCTYPE, c_void_p
 
@@ -44,19 +45,22 @@ def compile(source_code, log_level):
         return 
 
     log("Parsing completed!", 1, 'green', immediate=True)
-    log("Initial AST generated:", 2, 'blue', action=lambda: ast.print_content())  
 
     # Semantic analysis 
     analyzer = SemanticAnalyzer(ast)
-    symbol_table = analyzer.analyze()
+    glitch_present, symbol_table = analyzer.analyze()
 
     if has_error_occurred():
         flush_logs()
         return  
+    
+    if glitch_present:
+        glitch_engine = GlitchEngine(ast)
+        return glitch_engine.run()  # pass control over to glitchEngine that will trigger the glitch game and continue execution
 
     log("Semantic analysis completed!", 1, 'green', immediate=True)
     log("The following Symbol table was returned:", 2, 'blue', action=lambda: symbol_table.print_table())  
-    log("The analyzer returned this AST:", 3, 'blue', action=lambda: ast.print_content())  
+    log("The following AST was created:", 3, 'blue', action=lambda: ast.print_content())  
 
     # LLVM Initialization 
     try:
@@ -74,6 +78,7 @@ def compile(source_code, log_level):
 
     if has_error_occurred() or llvm_ir is None:
         flush_logs()
+        llvm.shutdown()
         return  
 
     # LLVMIR verification
@@ -87,6 +92,7 @@ def compile(source_code, log_level):
     except Exception as e:
         log(f"An error occurred during the LLVM IR verification: {e}", 0, 'red', immediate=True)
         flush_logs()
+        llvm.shutdown()
         return  # Return early to avoid running passes on invalid IR
 
     # optimization passes
@@ -106,6 +112,7 @@ def compile(source_code, log_level):
     except Exception as e:
         log(f"An error occurred during the LLVM optimization pass: {e}", 0, 'red', immediate=True)
         flush_logs()
+        llvm.shutdown()
         return  # Avoid proceeding if there's an error
     
     # print logs
@@ -132,6 +139,8 @@ def compile(source_code, log_level):
                     log("Error: 'main' function not found.", 0, 'red', immediate=True)
     except Exception as e:
         log(f"Execution failed: {str(e)}", 0, 'red', immediate=True)
+        llvm.shutdown()
+        return
 
     # Shutdown LLVM and return stdout
     llvm.shutdown()
@@ -167,7 +176,6 @@ def main():
         source_code = file.read()
 
     compile(source_code, log_level=args.log)
-
 
 if __name__ == "__main__":
     main()

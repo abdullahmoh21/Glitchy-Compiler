@@ -58,7 +58,7 @@ The primary goal of Glitchy is to demystify the compiler process, which often fe
 To install the Glitchy compiler, ensure you have Python and LLVM installed on your system. You can use the provided `setup.py` file for a straightforward installation:
 
 ```bash
-python setup.py install
+pip install .
 ```
 
 After installation, you can run Glitchy files using the following command:
@@ -67,7 +67,7 @@ After installation, you can run Glitchy files using the following command:
 glitchy example/filepath --log [level]
 ```
 
-_Log levels can be set from 1 to 3._
+_Log levels can be optionally set from 1 to 3._
 
 ## Usage
 
@@ -84,6 +84,7 @@ function int ackermann(m:int, n:int) {
     } else {
         return ackermann(m - 1, ackermann(m, n - 1))
     }
+}
 
 set m = input().toInteger()
 set n = input().toInteger()

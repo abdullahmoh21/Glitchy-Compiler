@@ -11,7 +11,6 @@ class Parser:
         self.peekToken = None
         self.inFunctionBlock = False
         self.inLoopBlock = False
-        self.currentNode = None
         
         # Initialize currentToken and peekToken
         self.nextToken()    
@@ -148,7 +147,6 @@ class Parser:
             TokenType.NOT: "Unexpected '!'. The NOT operator should be followed by a condition or a boolean value.",
             TokenType.INCREMENT: "Unexpected '++'. Ensure that '++' is used as a standalone statement or within an expression.",
             TokenType.DECREMENT: "Unexpected '--'. Ensure that '--' is used as a standalone statement or within an expression.",
-            TokenType.GLITCH: "Unexpected 'glitch'. This is a reserved keyword and cannot be used directly.",
         }
         
         if self.currentToken.type in errMsgs:
@@ -381,7 +379,7 @@ class Parser:
 
                 elif self.checkToken(TokenType.EQ, TokenType.COMMA, TokenType.PLUS_EQUAL, TokenType.MINUS_EQUAL):
                     node = self.handleVarAssign(name)
-                    self.currentNode = None
+
 
                 else:
                     if self.identSuggestions() is None:
@@ -452,42 +450,42 @@ class Parser:
                     if cur_ty_tag is not None and type_tag is None:
                         type_tag = cur_ty_tag
                     if cur_ty_tag != type_tag:
-                        report(f"Expected type '{type_tag}', recieved: '{cur_ty_tag}' for variable '{var_name}'. All type tags must be the same in multiple variable declaration (tip: just set the first one)",type_="Syntax",line=self.lineNumber)
-                
+                        report(
+                            f"Expected type '{type_tag}', received: '{cur_ty_tag}' for variable '{var_name}'. "
+                            "All type tags must be the same in multiple variable declarations (tip: just set the first one)",
+                            type_="Syntax",
+                            line=self.lineNumber
+                        )
                 variables.append(var_name)
                 if self.checkToken(TokenType.EQ):
                     self.nextToken()
                     break
                 if self.checkToken(TokenType.NEWLINE):
-                    report(f"Expected an expression for the multiple variable declaration on line {self.lineNumber}. Please ensure it is in format:\n\t 'set x,y,z = 10' ")
+                    report(
+                        f"Expected an expression for the multiple variable declaration on line {self.lineNumber}. "
+                        "Please ensure it is in format:\n\t 'set x,y,z = 10'",
+                        type_="Syntax",
+                        line=self.lineNumber
+                    )
                     self.nextToken()
                     return
                 self.nextToken()
-            
+
             var_expr = self.expression()
 
             for var in variables:
-                var_node = VariableDeclaration(var, None, annotation=type_tag, line=self.lineNumber)
-                var_expr.parent = var_node
-                var_node.value = var_expr
+                var_node = VariableDeclaration(var, var_expr, annotation=type_tag, line=self.lineNumber)
                 nodes.append(var_node)
                 
             return nodes
 
         else:
-            self.currentNode = VariableDeclaration(var_name, None)
-            node = self.currentNode
-            var_expr = self.expression()  
-            node.value = var_expr
-            node.annotation = type_tag
-            node.line = self.lineNumber
-            self.currentNode = None 
+            var_expr = self.expression()
+            node = VariableDeclaration(var_name, var_expr, annotation=type_tag, line=self.lineNumber)
             return node
-        
-    def handleVarAssign(self, var_name):
-        self.currentNode = VariableUpdated(var_name, None, line=self.lineNumber)
 
-        # += / -=
+    def handleVarAssign(self, var_name):
+        # Handle += and -=
         if self.checkToken(TokenType.PLUS_EQUAL, TokenType.MINUS_EQUAL):
             assignment_operator = self.currentToken.value
             self.nextToken()
@@ -495,15 +493,15 @@ class Parser:
             
             operator = assignment_operator[0]
             
-            varRef = VariableReference(var_name)
-            expr = BinaryOp(varRef, operator, expr)
-            self.currentNode.value = expr
-            return self.currentNode
+            var_ref = VariableReference(var_name)
+            bin_op_expr = BinaryOp(var_ref, operator, expr)
+            var_update_node = VariableUpdated(var_name, bin_op_expr, line=self.lineNumber)
+            return var_update_node
 
-        self.match(TokenType.EQ, TokenType.COMMA, errorMsg=f"Expected '=' for single assignment or ',' for multiple assignment. instead recieved: {self.currentToken.value}")
+        self.match(TokenType.EQ, TokenType.COMMA, errorMsg=f"Expected '=' for single assignment or ',' for multiple assignment. instead received: {self.currentToken.value}")
         
-        # x,y = 10
-        if self.checkToken(TokenType.IDENTIFIER) and self.checkPeek(TokenType.COMMA,TokenType.EQ):
+        # Handle multiple assignments: x,y = 10
+        if self.checkToken(TokenType.IDENTIFIER) and self.checkPeek(TokenType.COMMA, TokenType.EQ):
             vars = [var_name]
             while self.checkToken(TokenType.IDENTIFIER):
                 var_name = self.currentToken.value
@@ -512,23 +510,27 @@ class Parser:
                 if self.checkToken(TokenType.EQ):
                     self.nextToken()
                     break
-                self.nextToken() # skip comma
+                self.nextToken()  # skip comma
             
             expr = self.expression()
             if expr is None:
-                report(f"Expected an expression in variable assignment for variable: '{vars[-1]}'. Got: {repr(self.currentToken.value)} instead", type_="Syntax", line=self.lineNumber)
+                report(
+                    f"Expected an expression in variable assignment for variable: '{vars[-1]}'. "
+                    f"Got: {repr(self.currentToken.value)} instead",
+                    type_="Syntax",
+                    line=self.lineNumber
+                )
             
             nodes = []
-            for var_name in vars:
-                # Set the currentNode for each variable update
-                self.currentNode = VariableUpdated(var_name, expr, self.lineNumber)
-                nodes.append(self.currentNode)
+            for var in vars:
+                var_update_node = VariableUpdated(var, expr, line=self.lineNumber)
+                nodes.append(var_update_node)
             
             return nodes
         else:
             expr = self.expression()
-            self.currentNode.value = expr
-            return self.currentNode
+            var_update_node = VariableUpdated(var_name, expr, line=self.lineNumber)
+            return var_update_node
 
     def handleFuncCalls(self, func_name):
         """Parses function calls"""
@@ -536,29 +538,23 @@ class Parser:
         
         args = []
         while not self.checkToken(TokenType.RPAREN, TokenType.EOF, TokenType.NEWLINE):
-            argument_node = Argument(None)
-            self.currentNode = argument_node
             arg_value = self.expression()
             if arg_value is not None:
-                argument_node.value = arg_value
-                if hasattr(arg_value, 'parent') and arg_value.parent is None:
-                    argument_node.value.parent = argument_node
+                argument_node = Argument(arg_value)
                 args.append(argument_node)
-
             if self.checkToken(TokenType.COMMA):
                 self.match(TokenType.COMMA)
         self.match(TokenType.RPAREN, errorMsg=f"Could not find enclosing bracket ')' for the function call: {func_name}(...")
-        self.currentNode = None
         
-        node = FunctionCall(func_name, args, self.currentNode, self.lineNumber)
-
+        node = FunctionCall(func_name, args, line=self.lineNumber)
+        
         if self.checkToken(TokenType.DOT):
             return self.handleMethCall(node)
         
         return node
-        
+  
     def handleMethCall(self, receiver):
-        """ Parses member method chains """
+        """Parses member method chains"""
         while self.checkToken(TokenType.DOT):
             self.nextToken()
             method_name = self.currentToken.value
@@ -566,12 +562,14 @@ class Parser:
             self.match(TokenType.LPAREN, errorMsg=f"Missing opening '(' parenthesis after method call: {method_name}")
             arguments = []
             while not self.checkToken(TokenType.RPAREN, TokenType.EOF, TokenType.NEWLINE):
-                arguments.append(self.expression())
+                arg_value = self.expression()
+                if arg_value is not None:
+                    argument_node = Argument(arg_value)
+                    arguments.append(argument_node)
                 if self.checkToken(TokenType.COMMA):
                     self.match(TokenType.COMMA)
-            self.match(TokenType.RPAREN,errorMsg=f"Could not find enclosing bracket ')'for the method call: {method_name}(...")
+            self.match(TokenType.RPAREN, errorMsg=f"Could not find enclosing bracket ')' for the method call: {method_name}(...")
             receiver = MethodCall(receiver, method_name, arguments, self.lineNumber)
-        self.currentNode = None
         return receiver
 
     def block(self, appendNode=None ):
@@ -646,7 +644,7 @@ class Parser:
             operator = self.currentToken.value
             self.nextToken()
             right = self.additive()
-            binOp = BinaryOp(node, operator, right, parent=self.currentNode, line=self.lineNumber)
+            binOp = BinaryOp(node, operator, right, line=self.lineNumber)
             binOp.left.parent = binOp
             binOp.right.parent = binOp
             return binOp

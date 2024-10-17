@@ -1,4 +1,54 @@
 class ASTNode:
+    def __init__(self):
+            self.parent = None
+            self.parent_attr = None 
+            self.parent_index = None  
+            
+    def replace_self(self, new_node):
+        """ Replaces "self"(the callee) with the new_node argument. If new_node is None will delete "self" instead """
+        if not self.parent:
+            raise ValueError("Cannot replace node without a parent")
+        
+        if self.parent_attr:
+            parent_attr = getattr(self.parent, self.parent_attr)
+
+            if isinstance(parent_attr, list) and self.parent_index is not None:
+                # Replace or delete in list
+                if new_node is None:
+                    # Remove the current node from the list
+                    del parent_attr[self.parent_index]
+                else:
+                    # Replace with the new node in the list
+                    parent_attr[self.parent_index] = new_node
+                    new_node.parent = self.parent
+                    new_node.parent_attr = self.parent_attr
+                    new_node.parent_index = self.parent_index
+
+                # Clear current node's references
+                self.parent = None
+                self.parent_attr = None
+                self.parent_index = None
+
+            else:
+                # Replace or delete an attribute
+                if new_node is None:
+                    # Set the attribute to None, effectively deleting it
+                    setattr(self.parent, self.parent_attr, None)
+                else:
+                    # Replace with the new node
+                    setattr(self.parent, self.parent_attr, new_node)
+                    new_node.parent = self.parent
+                    new_node.parent_attr = self.parent_attr
+
+                # Clear current node's references
+                self.parent = None
+                self.parent_attr = None
+                self.parent_index = None
+
+        else:
+            raise ValueError("Parent context not set for node replacement")
+
+    
     def accept(self, visitor):
         raise NotImplementedError("Subclasses should implement this!")
 
@@ -6,10 +56,29 @@ class ASTNode:
         raise NotImplementedError("Subclasses should implement this!")
 
 class Program(ASTNode):
-    def __init__(self, statements, symbols=None):
+    def __init__(self, statements):
+        super().__init__()
         self.statements = statements
-        self.symbols = symbols
-    
+        for index, stmt in enumerate(self.statements):
+            if stmt is not None:
+                stmt.parent = self
+                stmt.parent_attr = 'statements'
+                stmt.parent_index = index
+
+        # This dict stores refs to nodes we might want to transform later.
+        self.stats = {
+            'if': [],
+            'while': [],
+            'funcDecl': [],
+            'funcCall': [],
+            'varDecl': [],
+            'varRef': [],
+            'varUpdate': [],
+            'comparison': [],
+            'binOp': [],
+            'logOp': [],
+        }
+        
     def __eq__(self, other):
         return isinstance(other, Program) and self.statements == other.statements
     
@@ -19,17 +88,45 @@ class Program(ASTNode):
     def accept(self, visitor):
         return visitor.visit_program(self)
     
-    def print_content(self, indent=0):
+    def addRef(self, node_type, node_ref):
+        if node_type in self.stats:
+            self.stats[node_type].append(node_ref)
+        else:
+            self.stats[node_type] = [node_ref]
+    
+    def print_content(self, indent=0, printStats=False):
+        
+        if printStats:
+            print("Recorded Stats: ")
+            self.pretty_print_stats() 
         for stmt in self.statements:
             if stmt is not None:
                 stmt.print_content(indent + 2)
             else:
-                print(" " * (indent+2) + "null")              
+                print(" " * (indent + 2) + "null")
 
+    def pretty_print_stats(self):
+        print("---------------------")
+        for node_type, nodes in self.stats.items():
+            print(f"{node_type.capitalize()}: {len(nodes)} nodes")
+            if nodes:
+                print("    References:")
+                for i, node in enumerate(nodes):
+                    print(f"    {i + 1}. {node}")  
+            else:
+                print("    No references.")
+            print()  
+        print("---------------------")
+        
 class Block(ASTNode):
     def __init__(self, statements):
+        super().__init__()
         self.statements = statements
 
+        for stmt in self.statements:
+            if stmt is not None:
+                stmt.parent = self
+                    
     def __eq__(self, other):
         return isinstance(other, Block) and self.statements == other.statements
 
@@ -49,10 +146,14 @@ class Block(ASTNode):
         
 class VariableDeclaration(ASTNode):
     def __init__(self, name, value, line=None, annotation=None):
+        super().__init__()
         self.name = name
         self.value = value
         self.annotation = annotation
         self.line = line
+        if self.value is not None:
+            self.value.parent = self
+            self.value.parent_attr = 'value'
     
     def evaluateType(self):
         if self.value is not None:
@@ -84,7 +185,8 @@ class VariableDeclaration(ASTNode):
 
 class VariableReference(ASTNode):
     def __init__(self, name, line = None):
-        self.name = name  
+        super().__init__()
+        self.name = name
         self.line = line
         
         # set in analyzer
@@ -115,9 +217,13 @@ class VariableReference(ASTNode):
 
 class VariableUpdated(ASTNode):
     def __init__(self, name, value, line=None):
+        super().__init__()
         self.name = name
         self.value = value
         self.line = line
+        if self.value is not None:
+            self.value.parent = self
+            self.value.parent_attr = 'value'
     
     def evaluateType(self):
         if self.value is not None:
@@ -130,7 +236,7 @@ class VariableUpdated(ASTNode):
                 self.value == other.value)
         
     def __str__(self):
-        return f"{str(self.value)}"
+        return f"{self.name} = {str(self.value)}"
     
     def __repr__(self):
         return f"VariableUpdated({str(self.name)})"
@@ -147,13 +253,23 @@ class VariableUpdated(ASTNode):
 
 class FunctionDeclaration(ASTNode):
     def __init__(self, name, return_type, parameters, block, line=None):
+        super().__init__()
         self.name = name
         self.return_type = return_type
         self.parameters = parameters
         self.block = block
         self.arity = len(parameters)
         self.line = line
-    
+        # Set parent references for parameters
+        for index, param in enumerate(self.parameters):
+            param.parent = self
+            param.parent_attr = 'parameters'
+            param.parent_index = index
+        # Set parent reference for block
+        if self.block is not None:
+            self.block.parent = self
+            self.block.parent_attr = 'block'
+            
     def __eq__(self, other):
         return (isinstance(other, FunctionDeclaration) and
                 self.name == other.name and
@@ -173,12 +289,18 @@ class FunctionDeclaration(ASTNode):
     def print_content(self, indent=0):
         print(" " * indent + f"FunctionDeclaration: {self.name} (return_type: {self.return_type})")
         print(" " * (indent + 2) + f"Parameters: ({self.parameters})")
+        print(" " * (indent + 2) + f"Parent: ({self.parent})")
         self.block.print_content(indent + 2)
 
 class Return(ASTNode):
     def __init__(self, value, line = None):
+        super().__init__()
         self.value = value
         self.line = line
+        # Set parent reference for value
+        if self.value is not None:
+            self.value.parent = self
+            self.value.parent_attr = 'value'
      
     def evaluateType(self):
         if self.value is not None:
@@ -202,6 +324,7 @@ class Return(ASTNode):
 
 class Break(ASTNode):
     def __init__(self, line):
+        super().__init__()
         self.line = line
     
     def __str__(self):
@@ -221,6 +344,7 @@ class Break(ASTNode):
     
 class Parameter(ASTNode):
     def __init__(self, name, type):
+        super().__init__()
         self.name = name
         self.type = type
     
@@ -244,13 +368,19 @@ class Parameter(ASTNode):
 
 class FunctionCall(ASTNode):
     def __init__(self, name, args, parent=None, line=None):
+        super().__init__()
         self.name = name
         self.args = args
         self.arity = len(args)
-        self.parent = parent
         self.line = line
         self.type = None     # set in analyzer
-        self.transformed = None 
+        self.transformed = None
+        self.parent = parent  
+        # Set parent references for arguments
+        for index, arg in enumerate(self.args):
+            arg.parent = self
+            arg.parent_attr = 'args'
+            arg.parent_index = index
     
     def evaluateType(self):
         if self.type is not None:
@@ -333,10 +463,14 @@ class FunctionCall(ASTNode):
 
 class Argument(ASTNode):
     def __init__(self, value, name = None):
+        super().__init__()
         self.name = name
         self.value = value
-        self.parent = None
         self.cached_type = None
+        # Set parent reference for value
+        if self.value is not None and isinstance(self.value, ASTNode):
+            self.value.parent = self
+            self.value.parent_attr = "value"
     
     def evaluateType(self):
         if self.cached_type is not None:
@@ -367,15 +501,21 @@ class Argument(ASTNode):
     def print_content(self, indent=0):
         print(" " * indent + f"Argument: {repr(self.value)}")
         if self.parent is not None:
-            print(" " * indent+2 + f"parent: {repr(self.parent)}")
+            print(" " * (indent+2) + f"parent: {repr(self.parent)}")
 
 class MethodCall(ASTNode):
     def __init__(self, receiver, name, args, line=None):
+        super().__init__()
         self.receiver = receiver
         self.name = name
         self.args = args
         self.receiverTy = None
         self.line = line
+        # Set parent references
+        if self.receiver is not None:
+            self.receiver.parent = self
+        for arg in self.args:
+            arg.parent = self
     
     def evaluateType(self):
         if self.return_type is not None:
@@ -415,12 +555,40 @@ class MethodCall(ASTNode):
             
 class If(ASTNode):
     def __init__(self, comparison, block, line=None, elifNodes=[], elseBlock=None):
+        super().__init__()
         self.comparison = comparison
         self.block = block
-        self.elifNodes = elifNodes  # an array of tuples in format: (comparison, block)
+        self.elifNodes = elifNodes if elifNodes else []  # an array of tuples in format: (comparison, block)
         self.elseBlock = elseBlock
         self.line = line
-    
+        
+        # Set parent reference and context for the comparison
+        if self.comparison is not None:
+            self.comparison.parent = self
+            self.comparison.parent_attr = 'comparison'
+
+        # Set parent reference and context for the main block
+        if self.block is not None:
+            self.block.parent = self
+            self.block.parent_attr = 'block'
+
+        # Set parent reference and context for elif nodes
+        for index, (elif_comparison, elif_block) in enumerate(self.elifNodes):
+            if elif_comparison is not None:
+                elif_comparison.parent = self
+                elif_comparison.parent_attr = 'elifNodes'
+                elif_comparison.parent_index = index
+
+            if elif_block is not None:
+                elif_block.parent = self
+                elif_block.parent_attr = 'elifNodes'
+                elif_block.parent_index = index
+
+        # Set parent reference and context for the else block
+        if self.elseBlock is not None:
+            self.elseBlock.parent = self
+            self.elseBlock.parent_attr = 'elseBlock'
+
     def __eq__(self, other):
         return (isinstance(other, If) and
                 self.comparison == other.comparison and
@@ -468,9 +636,16 @@ class If(ASTNode):
 
 class While(ASTNode):
     def __init__(self, comparison, block, line=None):
+        super().__init__()
         self.comparison = comparison
         self.block = block
         self.line = line
+        if self.comparison is not None:
+            self.comparison.parent = self
+            self.comparison.parent_attr = 'comparison'
+        if self.block is not None:
+            self.block.parent = self
+            self.block.parent_attr = 'block'
         
     def __eq__(self, other):
         return isinstance(other, While) and self.comparison == other.comparison and self.block == other.block
@@ -492,10 +667,15 @@ class While(ASTNode):
 class StringCat(ASTNode):
     """ Holds string concatenations. Will be transformed from BinaryOps. The strings array holds all the values to be concatenated """
     def __init__(self, strings, parent, line=None):
+        super().__init__()
         self.strings = strings
         self.line = line
-        self.parent = parent
         self.evaluated = None
+        self.parent = parent  
+        # Set parent references for strings
+        for s in self.strings:
+            if isinstance(s, String):
+                s.parent = self
 
     def evaluateType(self):
         return "string"
@@ -532,10 +712,18 @@ class StringCat(ASTNode):
 # ------------------------- Expressions ------------------------- #
 class Expression(ASTNode):
     def __init__(self, left, operator, right, line=None):
+        super().__init__()
         self.left = left
         self.operator = operator
         self.right = right
         self.line = line
+        # Set parent references
+        if self.left is not None:
+            self.left.parent = self
+            self.left.parent_attr = 'left'
+        if self.right is not None:
+            self.right.parent = self
+            self.right.parent_attr = 'right'
     
     def __eq__(self, other):
         raise NotImplementedError("Subclasses should implement this!")
@@ -554,14 +742,10 @@ class Expression(ASTNode):
 
 # For + - * /
 class BinaryOp(Expression):
-    def __init__(self, left, operator, right, parent=None, line=None):
-        self.left = left
-        self.operator = operator
-        self.right = right
-        self.cached_type = None
-        self.parent = parent   
-        self.transformed = None     # flag to know if binaryOp has been transformed
+    def __init__(self, left, operator, right, line=None):
         super().__init__(left, operator, right, line)
+        self.cached_type = None
+        self.transformed = None     # flag to know if binaryOp has been transformed
 
     def evaluateType(self):
         if self.cached_type is not None:
@@ -585,35 +769,7 @@ class BinaryOp(Expression):
     
     def accept(self, visitor):
         return visitor.visit_binary_op(self)
-        
-    def replace_with(self, new_node):
-        attrs_to_check = ['value', 'receiver', 'arguments', 'left', 'right']  
 
-        if self.parent:
-            for attr in attrs_to_check:
-                if hasattr(self.parent, attr):
-                    value = getattr(self.parent, attr)
-                    try:
-                        if value == self:
-                            setattr(self.parent, attr, new_node)
-                        elif isinstance(value, (list, tuple)) and self in value:
-                            index = value.index(self)
-                            if isinstance(value, list):
-                                value[index] = new_node
-                            else:
-                                value = value[:index] + (new_node,) + value[index + 1:]
-                                setattr(self.parent, attr, value)
-                    except Exception as e:
-                        print(f"Error replacing node in '{attr}': {e}")
-
-            new_node.parent = self.parent
-
-            self.transformed = True
-            del self
-            
-        else:
-            print("No parent found for replacement")
-        
     def __str__(self):
         return f"{str(self.left)} '{self.operator}' {str(self.right)}"
  
@@ -634,10 +790,12 @@ class BinaryOp(Expression):
 # for -5 / +5 and !
 class UnaryOp(Expression):
     def __init__(self, operator, left, line=None):
-        self.operator = operator
-        self.left = left
+        super().__init__(left, operator, None, line)
         self._cached_type = None
-        super().__init__(left, operator, None, line)  # UnaryOp has no right operand
+        # Set parent reference
+        if self.left is not None:
+            self.left.parent = self
+            self.left.parent_attr = 'left'
 
     def evaluateType(self):
         if self._cached_type is not None:
@@ -676,11 +834,8 @@ class UnaryOp(Expression):
 # for < > <= >= == !=
 class Comparison(Expression):
     def __init__(self, left, operator, right, line=None):
-        self.left = left
-        self.operator = operator
-        self.right = right
-        self._cached_type = None  
         super().__init__(left, operator, right, line)
+        self._cached_type = None
     
     def evaluateType(self):
         if self._cached_type is not None:
@@ -716,11 +871,8 @@ class Comparison(Expression):
 # for && ||
 class LogicalOp(Expression):
     def __init__(self, left, operator, right, line= None):
-        self.left = left
-        self.operator = operator
-        self.right = right
-        self._cached_type = None
         super().__init__(left, operator, right, line)
+        self._cached_type = None
 
     def evaluateType(self):
         if self._cached_type is not None:
@@ -758,6 +910,7 @@ class LogicalOp(Expression):
 
 class Primary(ASTNode):
     def __init__(self, value, line=None):
+        super().__init__()
         self.value = value
         self.line = line
         self.type = self.evaluateType()
@@ -773,8 +926,7 @@ class Primary(ASTNode):
 
 class Integer(Primary):
     def __init__(self, value, line=None):
-        self.value = value
-        super().__init__(value , line = line)
+       super().__init__(value, line)
 
     def evaluateType(self):
         if isinstance(self.value, int):
@@ -792,8 +944,7 @@ class Integer(Primary):
     
 class Double(Primary):
     def __init__(self, value, line=None):
-        self.value = value
-        super().__init__(value, line = line)
+        super().__init__(value, line)
 
     def evaluateType(self):
         if isinstance(self.value, float):
@@ -811,9 +962,7 @@ class Double(Primary):
 
 class Boolean(Primary):
     def __init__(self, value, line=None):
-        self.value = value
-        super().__init__(value, line = line)
-
+        super().__init__(value, line)
     def evaluateType(self):
         if isinstance(self.value, str) and self.value.lower().strip() in ['true', 'false']:
             return 'boolean'
@@ -830,9 +979,8 @@ class Boolean(Primary):
 
 class String(Primary):
     def __init__(self, value, isTypeStr=None, line=None):
-        self.value = value
+        super().__init__(value, line)
         self.isTypeStr = isTypeStr
-        super().__init__(value, line = line)
 
     def evaluateType(self):
         if self.value is not None and isinstance(self.value, str):
@@ -850,7 +998,7 @@ class String(Primary):
 
 class Null(Primary):
     def __init__(self, line=None):
-        super().__init__(None, line = line)
+        super().__init__(None, line)
 
     def evaluateType(self):
         return 'null'

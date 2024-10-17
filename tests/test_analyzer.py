@@ -6,6 +6,7 @@ class TestAnalyzer(unittest.TestCase):
     def setUp(self):
         error.clear_errors()
 
+    # TODO: add string concatenation tests about 5
     def test_duplicate_variable(self):
         ast = Program([
             VariableDeclaration('x', Integer(5)),
@@ -100,7 +101,7 @@ class TestAnalyzer(unittest.TestCase):
         analyzer = SemanticAnalyzer(ast)
         analyzer.analyze()
         self.assertTrue(error.has_error_occurred())
-        self.assertTrue(any("ReferenceError: Incorrect Function Call on line 1. A function with name 'foo' does not exists." in e for e in error.get_errors()))
+        self.assertTrue(any("ReferenceError: Incorrect Function Call on line 1. A function with name 'foo' does not exist." in e for e in error.get_errors()))
 
     def test_function_return(self):
         ast = Program([
@@ -221,6 +222,21 @@ class TestAnalyzer(unittest.TestCase):
         self.assertTrue(error.has_error_occurred())
         self.assertTrue(any("TypeError: Return Type error on line 2. Expected return of type 'integer' for function 'square' got: 'string' instead." in e for e in error.get_errors()))
 
+    def test_string_cat_1(self):
+        pass
+    
+    def test_string_cat_2(self):
+        pass
+    
+    def test_string_cat_3(self):
+        pass
+    
+    def test_string_cat_4(self):
+        pass
+    
+    def test_string_cat_5(self):
+        pass
+    
     def test_invalid_argument_type(self):
         ast = Program([
             FunctionDeclaration('testFunc', 'void', [Parameter('x', 'integer')], Block([

@@ -17,7 +17,7 @@ class TestParser(unittest.TestCase):
         expected_ast = Program([
             VariableDeclaration("x", Integer(42), 2),
             FunctionCall('print', [Argument(String("Hello, world"))], None, 3)
-        ], 1)
+        ])
         self.run_test(source_code, expected_ast)
 
     def test_if_statement(self):
@@ -36,7 +36,7 @@ class TestParser(unittest.TestCase):
                 ]),
                 3
             )
-        ], 1)
+        ])
         self.run_test(source_code, expected_ast)
 
     def test_elseif_statement(self):
@@ -70,7 +70,7 @@ class TestParser(unittest.TestCase):
                 ]),
                 line=3
             )
-        ], 1)
+        ])
 
         
         self.run_test(source_code, expected_ast)
@@ -107,7 +107,7 @@ class TestParser(unittest.TestCase):
                 ]),
                 3
             )
-        ], 1)
+        ])
         self.run_test(source_code, expected_ast)
 
     def test_while_loop(self):
@@ -128,7 +128,7 @@ class TestParser(unittest.TestCase):
                 ]),
                 3
             )
-        ], 1)
+        ])
         self.run_test(source_code, expected_ast)
 
     def test_input_statement(self):
@@ -165,7 +165,7 @@ class TestParser(unittest.TestCase):
                     VariableReference("e", 2), 2
                 ), 2
             )
-        ], 1)
+        ])
         self.run_test(source_code, expected_ast)
     
     def test_complex_expression_1(self):
@@ -198,7 +198,7 @@ class TestParser(unittest.TestCase):
                     2
                 ), 2
             )
-        ], 1)
+        ])
 
         self.run_test(source_code, expected_ast)
 
@@ -252,7 +252,7 @@ class TestParser(unittest.TestCase):
                     2
                 ), 2
             )
-        ], 1)
+        ])
 
         self.run_test(source_code, expected_ast)
 
@@ -316,7 +316,7 @@ class TestParser(unittest.TestCase):
                     2
                 ), 2
             )
-        ], 1)
+        ])
 
         self.run_test(source_code, expected_ast)
 
@@ -457,7 +457,7 @@ class TestParser(unittest.TestCase):
                     2
                 ), 2
             )
-        ], 1)
+        ])
 
         self.run_test(source_code, expected_ast)
 
@@ -487,7 +487,7 @@ class TestParser(unittest.TestCase):
                 ]),
                 3
             )
-        ], 1)
+        ])
         self.run_test(source_code, expected_ast)
 
     def test_expression_with_parentheses(self):
@@ -519,7 +519,7 @@ class TestParser(unittest.TestCase):
                 ), 
                 2
             )
-        ], 1)
+        ])
 
         self.run_test(source_code, expected_ast)
 
@@ -536,7 +536,7 @@ class TestParser(unittest.TestCase):
                 Block([]),
                 3
             )
-        ], 1)
+        ])
         self.run_test(source_code, expected_ast)
 
     def test_for_loop_with_complex_update(self):
@@ -557,7 +557,7 @@ class TestParser(unittest.TestCase):
                     2
                 )
             ])
-        ], 1)
+        ])
         self.run_test(source_code, expected_ast)
 
     def test_for_loop(self):
@@ -578,7 +578,7 @@ class TestParser(unittest.TestCase):
                     2
                 )
             ])
-        ], 1)
+        ])
         self.run_test(source_code, expected_ast)
 
     def test_function_decl(self):
