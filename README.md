@@ -1,12 +1,31 @@
 # Glitchy Language Compiler
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Features](#features)
+- [Glitches](#glitches)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Examples](#examples)
+- [Todo](#todo)
+- [Contributing](#contributing)
+- [Testing](#testing)
+- [License](#license)
+
 ## Overview
 
-Glitchy is an educational programming language that combines favorite syntax elements from various languages, designed to help users learn programming concepts through interactive challenges. It features type inference, optional type annotations enforced by the compiler, and a runtime type system for cases like user inputs where type inference is not possible.
+Glitchy is an educational programming language developed to combine favorite elements from various languages while creating an engaging platform for learning both programming and compiler design. It's a Python-based Just-In-Time (JIT) compiler that compiles to LLVM Intermediate Representation (IR), providing real-time execution and high performance.
 
-The primary goal of Glitchy is to demystify the compiler process, which often feels like "black magic" to many programmers. By creating Glitchy, I aimed to provide an engaging platform for users to understand both programming and compiler design. The language introduces random "glitches" through the `glitch()` function, prompting users to troubleshoot and learn through multiple-choice questions (MCQs).
+One of the unique aspects of Glitchy is the incorporation of random "glitches," turning coding into an interactive challenge where users must troubleshoot unexpected behavior and learn through dynamic multiple-choice questions (MCQs).
+
+The goal with Glitchy is to demystify compilers, removing the sense of "black magic" often associated with them. Users are encouraged not just to write code but to also gain insights into what happens behind the scenes during compilation. This is achieved through detailed optional logs that show each step of the compilation process. Users are also encouraged to explore the compiler code itself!
+
+The language features type inference, optional annotations, and a quirky type-checking system. For instance, Glitchy supports variable type strings, so `int`, `inte`, `integ`, and `integer` are all valid integer types. With Glitchy, you'll not only debug your code but also the compiler : )
 
 ## Features
+
+- **Basic Constructs**: Includes `if`, `elif`, `else`, `for`, `while` loops, and functions (see [samples](samples)).
 
 - **Type Inference**: Automatically infers the data type of variables without requiring explicit type declarations.
 
@@ -22,7 +41,7 @@ The primary goal of Glitchy is to demystify the compiler process, which often fe
   set name:string = "Glitchy"
   ```
 
-- **Flexible Type Names**: Allows various acceptable type names (e.g., `int`, `inte`, `integ`, etc.) for the same underlying type.
+- **Flexible Type Names**: Allows various acceptable type names (e.g., `int`, `inte`, `integ`, etc.) for the same underlying type. All these examples are valid:
 
   ```glitchy
   set num:int = 10
@@ -30,51 +49,80 @@ The primary goal of Glitchy is to demystify the compiler process, which often fe
   set num:integer = 10
   ```
 
-- **Basic Constructs**: Includes `if`, `elif`, `else`, `for`, `while` loops, and functions.
-
   ```glitchy
-  set num = 2^2     // '^' is operator for exponents
-  if (num > 5) {
-      print("Greater than 5")
-  } elif (num == 4) {
-      print("num is equal to 4")
-  } else {
-      print("idk")
-  }
+  set name:str = "Hello"
+  set name:string = "World"
   ```
 
-- **Glitches**: Introduces unexpected behavior such as variable shuffling, random delays, and unexpected exits, making programming an interactive learning experience.
+- **Flexible Type Comparison**: When checking the type of data using the `typeof(some_value)` function, which returns a string like `"boolean"`, Glitchy allows flexibility in type comparison. The compiler automatically normalizes type names during comparisons, enabling the following:
 
   ```glitchy
-  function double example(a:int, b:integer, c:double) {
-        set result = a+b+c
-        return result
-  }
+    set x = true
+    typeof(x) == "bool"         // true
+    typeof(x) == "boolean"      // true
   ```
+
+  However, normal string comparisons remain unchanged:
+
+  ```glitchy
+    "str" == "string" // false
+  ```
+
+## Glitches
+
+The Glitch feature introduces controlled unexpected behavior in the program whenever the function `glitch()` is called. This function triggers a game that tests users on their ability to debug and troubleshoot code. When a glitch is triggered, the program introduces a controlled glitches and runs the "glitched" code instead.
+
+After execution, users are shown the output or error generated and are asked through multiple-choice questions (MCQs) to determine what happened. This encourages deeper understanding and problem-solving skills. Possible glitches include:
+
+- **Logical Operation Inversion:** Logical operators like && (and) could be inverted to || (or)
+- **Comparison Operator Flipping:** Comparison operators could be flipped (e.g., == to !=)
+- **Ignored Function Calls:** Certain function calls might be ignored and not executed.
+- **Function Body Swapping:** The bodies of two functions could be swapped.
+- **Arithmetic Operator Change:** An arithmetic operator could be randomly changed (e.g., `+` to `*`).
+- **Variable Swapping:** The values of two variables could be swapped.
+- **Random Variable Alteration:** A variable's value could be randomly altered, potentially changing its type.
+- **Variable Reference Redirection:** Variable references could point to different variables.
+- **No Glitch:** Sometimes, no glitches are introduced to test your confidence in your own code
+
+This feature turns coding into an interactive learning experience, helping users to understand not just the code they write but also how unexpected changes can affect program behavior.
 
 ## Installation
 
-To install the Glitchy compiler, ensure you have Python and LLVM installed on your system. You can use the provided `setup.py` file for a straightforward installation:
+To install the Glitchy compiler, ensure you have Python and `pip` installed on your system.
 
-```bash
-python setup.py install
-```
+1. **Install Python and `pip`**:
+
+   - You can download Python (which includes `pip`) from [here](https://www.python.org/downloads/).
+
+2. **Clone the repository** and navigate to the project directory:
+
+   ```bash
+   git clone https://github.com/abdullahmoh21/Glitchy-Compiler.git
+   cd glitchy
+   ```
+
+3. **Install Glitchy** and its dependencies using pip:
+   ```bash
+   pip install .
+   ```
+
+## Usage
 
 After installation, you can run Glitchy files using the following command:
 
 ```bash
-glitchy example/filepath --log [level]
+glitchy example/file.g --log [level]
 ```
 
-_Log levels can be set from 1 to 3._
+_Log levels can be optionally set from 1 to 3 using the log flag_
 
-## Usage
+## Examples
 
-Here's a quick example of Glitchy code:
+- **Ackermann Function**:
 
 ```glitchy
 // Highly recursive Ackermann function
-function int ackermann(m:int, n:int) {
+function int ackermann(m:int, n:integer) {
     print("Ackermann called!")
     if (m == 0) {
         return n + 1
@@ -83,13 +131,12 @@ function int ackermann(m:int, n:int) {
     } else {
         return ackermann(m - 1, ackermann(m, n - 1))
     }
+}
 
 set m = input().toInteger()
 set n = input().toInteger()
 print("Ackermann(" + m + ", " + n + ") = " + ackermann(m, n))
 ```
-
-### Additional Examples
 
 - **Collatz Conjecture**:
 
@@ -115,19 +162,14 @@ set num = input().toInteger()
 collatz(num)
 ```
 
-- **Exponent Calculation**:
+## Todo
 
-```glitchy
-print("Please enter your base:")
-set base = input().toDouble()
-print("Please enter your exponent:")
-set exp = input().toDouble()
-print("The exponent of " + base + "^" + exp + " is: " + (base^exp))
-```
+- Arrays
+- More glitches
 
 ## Contributing
 
-Contributions are welcome! Please follow the standard open-source practices. Feel free to open issues or submit pull requests on the GitHub repository.
+This is a solo project and as such, I have 100% missed something. If you find any issues or want to expand on the project, feel free to open issues or submit pull requests on the GitHub repository. If for some very weird reason you want to talk to me: [abdullahmohsin21007@gmail.com](abdullahmohsin21007@gmail.com)
 
 ## Testing
 
@@ -139,4 +181,4 @@ python -m unittest discover
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+This project is licensed under the [MIT License](LICENSE.md).
