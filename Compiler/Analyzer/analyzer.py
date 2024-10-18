@@ -255,6 +255,8 @@ class SemanticAnalyzer:
             if node.arity != 0:
                 throw(ArgumentError(f"Function glitch expects 0 arguments but received {node.arity} arguments"),line=node.line)
             self.glitchPresent = True
+            node.replace_self(None) # delete node because there is no concrete implementation of glitch()
+            return
         
         symbol = self.symbolTable.lookup(func_name)
         if symbol and 'function_data' in symbol:

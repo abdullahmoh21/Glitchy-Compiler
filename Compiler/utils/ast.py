@@ -48,7 +48,6 @@ class ASTNode:
         else:
             raise ValueError("Parent context not set for node replacement")
 
-    
     def accept(self, visitor):
         raise NotImplementedError("Subclasses should implement this!")
 
@@ -367,7 +366,7 @@ class Parameter(ASTNode):
         print(" " * indent + f"Parameter: {self.name} (type: {self.type})")
 
 class FunctionCall(ASTNode):
-    def __init__(self, name, args, parent=None, line=None):
+    def __init__(self, name, args, line=None):
         super().__init__()
         self.name = name
         self.args = args
@@ -375,7 +374,6 @@ class FunctionCall(ASTNode):
         self.line = line
         self.type = None     # set in analyzer
         self.transformed = None
-        self.parent = parent  
         # Set parent references for arguments
         for index, arg in enumerate(self.args):
             arg.parent = self

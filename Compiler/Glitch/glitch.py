@@ -1,5 +1,9 @@
 from Compiler.Analyzer import *
 from Compiler.Generator import *
+from Compiler.utils import *
+from ctypes import CFUNCTYPE, c_void_p
+import llvmlite.ir as ir
+import llvmlite.binding as llvm
 from enum import Enum
 import random
 
@@ -45,10 +49,12 @@ class GlitchEngine:
         self.glitch_detail = None
 
         self.apply_glitches(glitches)
-        print(f"Glitch Applied: {self.glitch_applied.value}")
         print("After glitches, the AST is:\n")
-
         self.ast.print_content()
+        print("Output:")
+        print("----------------------------------")
+        self.compile_glitched()
+        print("----------------------------------")
         self.present_mcq()
 
     def apply_glitches(self, possible_glitches):
@@ -63,9 +69,13 @@ class GlitchEngine:
 
         glitch_to_apply = random.choice(possible_glitches)
 
-        # Apply the selected glitch
-        if glitch_to_apply == GlitchType.FLIP_LOG_OPS:
-            self.flip_logical_ops()
+        
+
+        # if glitch_to_apply == GlitchType.FLIP_LOG_OPS:
+        #     self.flip_logical_ops()
+            
+        if True:
+            self.ignore_function_calls()
             
         elif glitch_to_apply == GlitchType.FLIP_COMPARISONS:
             self.flip_comparisons()
@@ -88,7 +98,8 @@ class GlitchEngine:
         elif glitch_to_apply == GlitchType.REF_SWAP:
             self.ref_swap()
 
-        self.glitch_applied = glitch_to_apply
+        # self.glitch_applied = glitch_to_apply
+        self.glitch_applied = GlitchType.IGNORE_FUNCTION_CALLS
         self.glitch_history.append((self.glitch_applied, self.glitch_detail))
 
     def present_mcq(self):
@@ -270,6 +281,80 @@ class GlitchEngine:
 
         return glitches
 
+    def compile_glitched(self):
+        # Semantic analysis 
+        analyzer = SemanticAnalyzer(self.ast)
+        _ , symbol_table = analyzer.analyze()
+
+        if has_error_occurred():
+            return  
+
+        # LLVM Initialization 
+        try:
+            llvm.initialize()
+            llvm.initialize_native_target()
+            llvm.initialize_native_asmprinter()
+        except Exception as e:
+            print(f"LLVM initialization failed: {str(e)}")
+            return
+
+        # LLVM IR code generation phase
+        llvmir_gen = LLVMCodeGenerator(symbol_table)
+        llvm_ir = llvmir_gen.generate_code(self.ast)
+
+        if has_error_occurred() or llvm_ir is None:
+            llvm.shutdown()
+            return  
+
+        # LLVMIR verification
+        try:
+            mod = llvm.parse_assembly(str(llvm_ir))
+            mod.verify()
+        except Exception as e:
+            print(f"An error occurred during the LLVM IR verification: {e}")
+            llvm.shutdown()
+            return  # Return early to avoid running passes on invalid IR
+
+        # optimization passes
+        try:
+            target = llvm.Target.from_default_triple()
+            target_machine = target.create_target_machine()
+
+            # Set up the pass manager and apply optimizations
+            pmb = llvm.create_pass_manager_builder()
+            pmb.opt_level = 3
+
+            pass_manager = llvm.create_module_pass_manager()
+            pmb.populate(pass_manager)
+
+            # Run the pass manager
+            pass_manager.run(mod)
+        except Exception as e:
+            print(f"An error occurred during the LLVM optimization pass: {e}")
+            llvm.shutdown()
+            return
+        
+        # Mcjit compiler
+        try:
+            if not has_error_occurred():
+                with llvm.create_mcjit_compiler(mod, target_machine) as engine:
+                    engine.finalize_object()
+                    engine.run_static_constructors()
+
+                    main_ptr = engine.get_function_address("main")
+                    if main_ptr:
+                        c_main = CFUNCTYPE(None)(main_ptr)
+                        c_main()  # Call the main function
+                    else:
+                        log("Error: 'main' function not found.", 0, 'red', immediate=True)
+        except Exception as e:
+            print(f"Execution failed: {str(e)}")
+            llvm.shutdown()
+            return
+
+        # Shutdown LLVM and return stdout
+        llvm.shutdown()
+    
     # ------------------------------- Glitch Helpers ------------------------------- #
     
     def flip_logical_ops(self):
