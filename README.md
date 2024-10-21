@@ -15,7 +15,7 @@
 
 ## Overview
 
-Glitchy is an educational programming language developed to combine favorite elements from various languages while creating an engaging platform for learning both programming and compiler design. It's a Python-based Just-In-Time (JIT) compiler that compiles to LLVM Intermediate Representation (IR), providing real-time execution and high performance.
+Glitchy is an educational programming language developed to combine elements from my favorite languages while creating an engaging platform for learning both programming and compiler design. It's a Python-based Just-In-Time (JIT) compiler that compiles to LLVM Intermediate Representation (IR), providing real-time execution and high performance.
 
 One of the unique aspects of Glitchy is the incorporation of random "glitches," turning coding into an interactive challenge where users must troubleshoot unexpected behavior and learn through dynamic multiple-choice questions (MCQs).
 
@@ -30,7 +30,7 @@ The language features type inference, optional annotations, and a quirky type-ch
 - **Type Inference**: Automatically infers the data type of variables without requiring explicit type declarations.
 
   ```glitchy
-  set num = 10  // num is inferred as integer
+  set num = 10          // num is inferred as integer
   set name = "Glitchy"  // name is inferred as string
   ```
 
@@ -70,7 +70,7 @@ The language features type inference, optional annotations, and a quirky type-ch
 
 ## Glitches
 
-The Glitch feature introduces controlled unexpected behavior in the program whenever the function `glitch()` is called. This function triggers a game that tests users on their ability to debug and troubleshoot code. When a glitch is triggered, the program introduces a controlled glitches and runs the "glitched" code instead.
+The Glitch feature introduces controlled unexpected behavior in the program whenever the function `glitch()` is called. This function triggers a game that tests users on their ability to debug and troubleshoot code. When this function is **explicitly** called, the program introduces a controlled glitch and runs the "glitched" code instead.
 
 After execution, users are shown the output or error generated and are asked through multiple-choice questions (MCQs) to determine what happened. This encourages deeper understanding and problem-solving skills. Possible glitches include:
 
@@ -98,7 +98,7 @@ To install the Glitchy compiler, ensure you have Python and `pip` installed on y
 
    ```bash
    git clone https://github.com/abdullahmoh21/Glitchy-Compiler.git
-   cd glitchy
+   cd glitchy-compiler
    ```
 
 3. **Install Glitchy** and its dependencies using pip:
@@ -166,6 +166,7 @@ collatz(num)
 
 - Arrays
 - More glitches
+- More builtin functions
 
 ## Contributing
 
